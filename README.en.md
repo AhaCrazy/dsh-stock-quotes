@@ -107,6 +107,7 @@ npm test
 ```
 
 - `tests/quotes.test.mjs` — symbol resolution, batching, formatting and cancellation. The deterministic part needs no network, and the live section is skipped when the endpoint is unreachable.
+- `tests/render.test.mjs` — the tool definition and the text it renders: two decimals, signed changes, an em dash for missing fields, and no throw on degenerate input.
 - `tests/client.test.mjs` — emulates the module loader, the locale service, the slot registry and React, then asserts what the plugin registers, what its components render, and the reorder/move list transforms.
 
 The Host half's full contract check needs packages from a DeepSeek Harness installation, so it is kept out of this repo.
