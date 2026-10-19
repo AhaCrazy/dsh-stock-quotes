@@ -1,67 +1,73 @@
 # dsh-stock-quotes
 
-A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin that shows **live quotes for a watchlist of stocks** in a sidebar data panel, and registers a `stock_quote` tool so the agent can answer "what is 贵州茅台 at right now" inside the conversation.
+**中文** | [English](README.en.md)
 
-- **Panel**: A-shares, Hong Kong and US symbols in one list — price, change, change %, open / high / low, turnover; 15 s auto-refresh; right-click menu, drag to reorder, multi-select batch actions.
-- **Tool**: `stock_quote` reads one or several symbols (or the configured watchlist) in a single batched request.
-- **Neutral by default**: the sidebar entry is called `数据` ("Data") with a plain table glyph, and the display name is configurable. It reads as a generic data view rather than a stock ticker.
+一个 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件：在侧边栏数据面板里显示**自选股实时行情**，同时注册 `stock_quote` 工具，让 Agent 能在对话里直接回答"茅台现在多少钱"这类问题。
 
-> Data is delayed/snapshot quote data from a public endpoint. For information only — **not investment advice**, not for trading decisions.
+- **面板**：A 股 / 港股 / 美股自选股一张表 —— 最新价、涨跌额、涨跌幅、今开 / 最高 / 最低、成交额；15 秒自动刷新；右键菜单、拖拽排序、多选批量操作。
+- **工具**：`stock_quote` 一次批量取回一只或多只行情（不带参数时用配置里的默认自选股）。
+- **外观中性**：侧边栏默认叫「数据」、图标是普通表格样式，显示名称可配置 —— 看起来像通用数据视图，而不是行情软件。
 
-## Requirements
+> 行情来自公开接口的**延时/快照数据**，仅供查看，**不构成任何投资建议**，不用于交易决策。
 
-- DeepSeek Harness Desktop / Web with the `plugin_manager` tool (0.2.x).
-- No API key. No extra dependencies. The Host half imports nothing outside its own package.
+## 环境要求
 
-## Install
+- DeepSeek Harness（0.2.x，需要 `plugin_manager` 工具）
+- 无需 API key，无需安装额外依赖；Host 半不 import 包外任何模块
+
+## 安装
 
 ```bash
 git clone https://github.com/AhaCrazy/dsh-stock-quotes.git
 ```
 
-Then, from a DSH session, install the bundle by its absolute directory:
+然后在 DSH 会话里按绝对路径安装这个 bundle：
 
 ```
 plugin_manager  action: install_bundle  target: <path-to>/dsh-stock-quotes
 ```
 
-The panel appears after the client module loads (reload the page if the sidebar icon does not show up immediately). `stock_quote` shows up in the agent's tool list on the next request.
+客户端模块加载后侧边栏会出现图标；没出现就刷新一次页面。`stock_quote` 会在下一次请求的工具清单里出现。
 
-To remove it: `plugin_manager  action: remove_bundle  target: dsh-stock-quotes`.
+卸载：
 
-## Panel actions
+```
+plugin_manager  action: remove_bundle  target: dsh-stock-quotes
+```
 
-| Action | How |
+## 面板操作
+
+| 操作 | 怎么做 |
 |---|---|
-| Add | Type a symbol in the top input, press Enter |
-| **Delete** | **Right-click a row** → menu → Delete (there is no per-row ✕ button) |
-| **Reorder** | Drag the ⠿ handle; a brand-colored line shows the drop position — or use the right-click menu's move items |
-| **Multi-select** | Checkbox on each row; the header checkbox selects / clears everything |
-| **Batch** | With ≥1 selected, a bar appears: delete selected / move to top / move to bottom / clear |
-| Other menu items | Copy symbols (newline-joined), select all, clear selection |
+| 添加 | 顶部输入代码 → 回车 / 点「添加」 |
+| **删除** | **在任意一行上右键** → 菜单里选「删除」（没有每行右侧的 ✕ 按钮） |
+| **排序** | 拖行首的 ⠿ 手柄上下拖拽，落点会显示品牌色指示线；也可以用右键菜单的「上移 / 下移 / 置顶 / 置底」 |
+| **多选** | 勾选每行最左侧复选框；表头复选框是全选 / 清空 |
+| **批量操作** | 选中 ≥1 项后表格上方出现操作条：删除所选 / 置顶 / 置底 / 取消选择 |
+| 右键菜单其余项 | 复制代码（多选时按行拼接）、全选、清除选择 |
 
-The context menu is **selection-aware**: if the right-clicked row is part of a multi-selection, delete/move/copy act on the whole selection and the labels carry the count; otherwise they act on that one row.
+右键菜单是**感知选择范围**的：右键的那一行若已在多选里，删除 / 移动 / 复制会作用于整个选中集合，菜单标题会带数量；否则只作用于该行。
 
-Order and membership persist in the browser (`localStorage`, key `dsh-stock-quotes/watchlist`). Rows always render in watchlist order and quotes are mapped by symbol, so reordering can never desynchronize a code from its price.
+自选股顺序与成员保存在浏览器 `localStorage`（键 `dsh-stock-quotes/watchlist`）。表格始终按自选股顺序渲染、行情按代码映射进对应行，所以拖动排序不会让"代码 ↔ 报价"错位。
 
-## Display name
+## 显示名称
 
-The sidebar label, the panel heading and the notification text all use one configurable name, defaulting to `数据`. Change it in **Settings → Plugins → "数据面板" → Panel settings**. Leave the field empty to get the default back. Values are whitespace-collapsed and capped at 24 characters; they live in `localStorage` under `dsh-stock-quotes/prefs`.
+侧边栏文案、面板标题、提示信息共用一个可配置名称，默认「数据」。到 **设置 → 插件 → 「数据面板」→ 面板设置** 里改；留空即恢复默认。名称会自动去首尾空白、忽略多余空格、限 24 字，存在 `localStorage`（键 `dsh-stock-quotes/prefs`）。
 
-## Symbol spellings
+## 支持的代码写法
 
-| Market | Spellings | Examples |
+| 市场 | 写法 | 例子 |
 |---|---|---|
-| Shanghai | 6 digits, or `sh` prefix | `600519`, `sh600519`, `688981`, `900901` |
-| Shenzhen | 6 digits, or `sz` prefix | `000001`, `sz000001`, `300750` |
-| Beijing | 6 digits, or `bj` prefix | `430047`, `830799`, `920001` |
-| Hong Kong | 1–5 digits, or `hk` prefix | `00700`, `700`, `hk00700` |
-| US | letters, or `us` prefix | `AAPL`, `usAAPL`, `BRK.B` (matched across NASDAQ / NYSE / AMEX) |
-| Raw secid | `market.code` | `1.600519`, `116.00700` |
+| 上交所 | 6 位代码 / `sh` 前缀 | `600519`、`sh600519`、`688981`、`900901` |
+| 深交所 | 6 位代码 / `sz` 前缀 | `000001`、`sz000001`、`300750` |
+| 北交所 | 6 位代码 / `bj` 前缀 | `430047`、`830799`、`920001` |
+| 港股 | 1–5 位数字 / `hk` 前缀 | `00700`、`700`、`hk00700` |
+| 美股 | 字母代码 / `us` 前缀 | `AAPL`、`usAAPL`、`BRK.B`（自动在 NASDAQ / NYSE / AMEX 之间匹配） |
+| 原始 secid | `市场.代码` | `1.600519`、`116.00700` |
 
-## Configuration
+## 配置
 
-`cordis.patch.yml` ships a watchlist that `stock_quote` falls back to when the model calls it without arguments:
+`cordis.patch.yml` 里的 `config.defaultSymbols` 是 `stock_quote` 不带参数时使用的默认自选股：
 
 ```yaml
 - insert:
@@ -76,34 +82,35 @@ The sidebar label, the panel heading and the notification text all use one confi
           - usAAPL
 ```
 
-The panel keeps its own watchlist in the browser, independently of this list: the config is for the agent, the panel is for looking.
+注意：面板自己的自选股存在浏览器里，与这份配置相互独立 —— 配置是给 Agent 查的，面板是给自己看的。
 
-## How it works
+## 实现说明
 
-| File | Role |
+| 文件 | 作用 |
 |---|---|
-| `package.json` | Bundle manifest: `dsh.bundle.patch` inserts the Host row, `dsh.client` makes the Web app load the browser half |
-| `cordis.patch.yml` | Loader patch: inserts the `stock-quotes` row with the default watchlist |
-| `index.js` | Host half: registers `stock_quote` as a raw `ToolDefinition` (no imports outside the package) |
-| `quotes.js` | Pure data layer: symbol resolution, batched fetch, formatting |
-| `client.js` | Browser half: `main` panel, `plugins.bundle.config` settings card, `sidebar.panellist` icon |
-| `locale/{zh,en}.json` | Plugin-manager card title and description |
+| `package.json` | bundle 清单：`dsh.bundle.patch` 插入 Host 行，`dsh.client` 让 Web 端加载浏览器半 |
+| `cordis.patch.yml` | Loader 补丁：插入 `stock-quotes` 行并给出默认自选股 |
+| `index.js` | Host 半：以原生 `ToolDefinition` 注册 `stock_quote`（包外零依赖） |
+| `quotes.js` | 纯数据层：代码解析、批量取数、格式化 |
+| `client.js` | 浏览器半：`main` 面板、`plugins.bundle.config` 设置卡、`sidebar.panellist` 图标 |
+| `locale/{zh,en}.json` | 插件管理器卡片的标题与描述 |
 
-Two design notes worth knowing if you modify it:
+改代码前值得知道的两条设计约束：
 
-- **No bare `@deepseek-ai/...` imports in the Host half.** A bundle linked into a profile from outside it does not resolve those specifiers, so the row would fail to import. It registers a raw `ToolDefinition` instead.
-- **The client half does not import any Harness client package.** It writes its own controls with theme tokens (`--dsw-alias-*`) only, which keeps it stable across Harness versions.
+- **Host 半不能写裸 `@deepseek-ai/...` import。** 工作区里的 bundle 是 link 进 profile 的，这些裸模块名解析不到，整行会 `failed to import`。所以它直接用原生 `ToolDefinition`。
+- **浏览器半不 import 任何 Harness 客户端包。** 控件全部自己写、只用主题 token（`--dsw-alias-*`），这样跨 Harness 版本更稳。
 
-## Tests
+## 测试
 
 ```bash
 npm test
 ```
 
-`tests/quotes.test.mjs` covers symbol resolution, batching, formatting and cancellation (no network needed for the deterministic part). `tests/client.test.mjs` emulates the module loader, the locale service, the slot registry and React so it can assert what the plugin registers and what its components render — including the reorder/move list transforms.
+- `tests/quotes.test.mjs`：代码解析、批量取数、格式化、取消；确定性的部分不联网，联网段不可达时自动跳过。
+- `tests/client.test.mjs`：模拟模块加载器 / 语言服务 / slot 注册表 / React，断言注册了什么、组件渲染出什么，以及排序与移动的纯函数。
 
-The Host half's full contract check needs packages from a DeepSeek Harness installation, so it is kept out of this repo.
+Host 半的完整契约校验需要 DSH 安装目录里的包，因此没有放进本仓库。
 
-## License
+## 许可证
 
-MIT — see [LICENSE](LICENSE).
+MIT —— 见 [LICENSE](LICENSE)。
