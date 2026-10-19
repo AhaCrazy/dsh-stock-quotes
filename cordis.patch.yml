@@ -1,0 +1,19 @@
+# Bundle patch layer for dsh-stock-quotes.
+#
+# `insert` adds one Loader row: the Host half (index.js) registers the
+# `stock_quote` tool; the package's `dsh.client` declaration makes the Web app
+# also load `./client`, which registers the sidebar icon and the行情 panel.
+#
+# `config.defaultSymbols` is the watchlist the tool falls back to when the model
+# calls `stock_quote` without arguments. Edit this list (or override it in
+# the profile's own patch layer) to change the defaults.
+- insert:
+    - id: stock-quotes
+      name: 'dsh-stock-quotes'
+      config:
+        defaultSymbols:
+          - sh000001
+          - sh600519
+          - sz300750
+          - hk00700
+          - usAAPL
