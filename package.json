@@ -1,6 +1,6 @@
 {
   "name": "dsh-stock-quotes",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": true,
   "type": "module",
   "description": "DeepSeek Harness plugin: a neutral, configurable sidebar data panel for A-share / Hong Kong / US quotes, plus a stock_quote tool for the agent.",

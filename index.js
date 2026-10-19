@@ -167,15 +167,15 @@ export function renderQuotes(value) {
       ? ''
       : ` ${arrow} ${signed(change)}${pct === undefined ? '' : ` (${signed(pct)}%)`}`;
     const detail = [
-      quote.open === undefined ? undefined : `开${number(quote.open)}`,
-      quote.high === undefined ? undefined : `高${number(quote.high)}`,
-      quote.low === undefined ? undefined : `低${number(quote.low)}`,
-      quote.preClose === undefined ? undefined : `昨收${number(quote.preClose)}`,
+      quote.open === undefined ? undefined : `开${text(quote.open)}`,
+      quote.high === undefined ? undefined : `高${text(quote.high)}`,
+      quote.low === undefined ? undefined : `低${text(quote.low)}`,
+      quote.preClose === undefined ? undefined : `昨收${text(quote.preClose)}`,
       quote.amount === undefined ? undefined : `额${formatAmount(quote.amount)}`,
     ].filter((part) => part !== undefined);
     lines.push(
       `${quote.name || quote.code} (${quote.symbol}${quote.market ? ` · ${quote.market}` : ''}) `
-      + `${price === undefined ? '—' : price}${delta}`
+      + `${text(price)}${delta}`
       + (detail.length === 0 ? '' : ` · ${detail.join(' ')}`),
     );
   }
@@ -195,12 +195,24 @@ function number(value) {
 }
 
 /**
+ * Render a quote number the same way the panel does — two decimals, `—` when the
+ * field carries no value — so the conversation text and the table never disagree
+ * about how a price looks.
+ * @param value - candidate value.
+ * @returns The formatted text.
+ */
+function text(value) {
+  const parsed = number(value);
+  return parsed === undefined ? '—' : parsed.toFixed(2);
+}
+
+/**
  * Prefix a positive number with `+` so the direction survives plain text.
  * @param value - a finite number.
  * @returns The signed string.
  */
 function signed(value) {
-  return `${value > 0 ? '+' : ''}${value}`;
+  return `${value > 0 ? '+' : ''}${value.toFixed(2)}`;
 }
 
 /**
