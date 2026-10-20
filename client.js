@@ -21,6 +21,7 @@ window.__ModuleLoader__.load({
     const PKG = 'dsh-stock-quotes';
     const STORAGE_KEY = 'dsh-stock-quotes/watchlist';
     const REFRESH_MS = 15000;
+    const CHART_TTL = 60000;
     const DEFAULT_SYMBOLS = ['sh000001', 'sh600519', 'sz300750', 'hk00700', 'usAAPL'];
 
     const BATCH_ENDPOINT = 'https://push2.eastmoney.com/api/qt/ulist.np/get';
@@ -44,6 +45,7 @@ window.__ModuleLoader__.load({
       'panel.convention': '红涨绿跌',
       'panel.source': '数据源：东方财富',
       'panel.drag': '拖动排序',
+      'panel.chart': '曲线',
       'panel.copied': '已复制代码',
       'panel.copyFailed': '复制失败',
       'menu.title': '关注项操作',
@@ -62,6 +64,7 @@ window.__ModuleLoader__.load({
       'batch.bottom': '置底',
       'batch.clear': '取消选择',
       'col.name': '名称 / 代码',
+      'col.trend': '走势',
       'col.price': '最新价',
       'col.change': '涨跌额',
       'col.pct': '涨跌幅',
@@ -104,7 +107,11 @@ window.__ModuleLoader__.load({
 .dsq-suggest-code{color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}
 .dsq-tablewrap{border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-alias-bg-layer-1);overflow-x:auto}
 .dsq-grid{min-width:820px}
+.dsq-chart-on .dsq-grid{min-width:912px}
 .dsq-row{display:grid;grid-template-columns:28px 20px minmax(150px,1.6fr) repeat(4,minmax(72px,.9fr)) repeat(3,minmax(64px,.8fr));align-items:center;gap:8px;padding:6px 14px 6px 10px;border-top:1px solid var(--dsw-alias-border-l1)}
+.dsq-chart-on .dsq-row{grid-template-columns:28px 20px minmax(140px,1.5fr) minmax(88px,1.1fr) repeat(4,minmax(72px,.9fr)) repeat(3,minmax(64px,.8fr))}
+.dsq-chart{display:flex;align-items:center;justify-content:center;min-width:0}
+.dsq-chart svg{display:block;width:100%;height:24px}
 .dsq-row:first-child{border-top:none}
 .dsq-row:not(.dsq-headrow):hover{background:var(--dsw-alias-bg-layer-2)}
 .dsq-headrow{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}
@@ -354,6 +361,72 @@ window.__ModuleLoader__.load({
       return scored.slice(0, limit).map(([, name, spelling]) => [name, spelling]);
     }
 
+    const TREND_ENDPOINT = 'https://push2his.eastmoney.com/api/qt/stock/trends2/get';
+
+    /**
+     * Intraday close series for one entry, trying each candidate market the
+     * spelling allows. Only `time,close` is requested: the full row would be three
+     * times the payload and nothing else is drawn.
+     * @param input - a watchlist spelling.
+     * @param signal - optional abort signal.
+     * @returns Close values in chronological order; empty when nothing answers.
+     */
+    async function fetchTrend(input, signal) {
+      for (const secid of candidateSecids(input)) {
+        try {
+          const url = `${TREND_ENDPOINT}?secid=${encodeURIComponent(secid)}`
+            + `&fields1=f1,f2&fields2=f51,f53&ndays=1&iscr=0&iscca=0&_=${Date.now()}`;
+          const response = await fetch(url, { signal, cache: 'no-store', headers: { accept: 'application/json' } });
+          if (!response.ok) continue;
+          const payload = await response.json();
+          const rows = payload !== null && payload !== undefined && payload.data
+            ? payload.data.trends
+            : undefined;
+          if (!Array.isArray(rows) || rows.length === 0) continue;
+          const points = [];
+          for (const row of rows) {
+            const parts = String(row).split(',');
+            const value = Number(parts[1]);
+            if (Number.isFinite(value)) points.push(value);
+          }
+          if (points.length >= 2) return points;
+        } catch (error) {
+          if (error !== null && typeof error === 'object' && error.name === 'AbortError') throw error;
+        }
+      }
+      return [];
+    }
+
+    /**
+     * SVG path for a sparkline: the series stretched over the box, a flat series
+     * drawn along the midline.
+     * @param points - close values, oldest first.
+     * @param width - box width in user units.
+     * @param height - box height in user units.
+     * @returns Path data, or an empty string when there is nothing to draw.
+     */
+    function sparklinePath(points, width = 88, height = 24) {
+      const values = (Array.isArray(points) ? points : [])
+        .filter((value) => typeof value === 'number' && Number.isFinite(value));
+      if (values.length < 2) return '';
+      let min = values[0];
+      let max = values[0];
+      for (const value of values) {
+        if (value < min) min = value;
+        if (value > max) max = value;
+      }
+      const span = max - min;
+      const stepX = width / (values.length - 1);
+      const usable = height - 2;
+      let path = '';
+      for (let index = 0; index < values.length; index += 1) {
+        const x = (index * stepX).toFixed(2);
+        const y = (span === 0 ? height / 2 : height - ((values[index] - min) / span) * usable - 1).toFixed(2);
+        path += `${index === 0 ? 'M' : 'L'}${x} ${y}`;
+      }
+      return path;
+    }
+
     function toNumber(value) {
       if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
       if (typeof value === 'string' && value.trim() !== '') {
@@ -478,19 +551,33 @@ window.__ModuleLoader__.load({
         if (raw !== null) {
           const parsed = JSON.parse(raw);
           if (parsed !== null && typeof parsed === 'object') {
-            return { label: typeof parsed.label === 'string' ? parsed.label : '' };
+            return {
+              label: typeof parsed.label === 'string' ? parsed.label : '',
+              chart: parsed.chart !== false,
+            };
           }
         }
       } catch {
         /* A blocked or corrupt store falls back to the defaults. */
       }
-      return { label: '' };
+      return { label: '', chart: true };
     }
 
-    /** Persist preferences and let the sidebar re-render with the new name. */
+    /**
+     * Persist preferences and let the sidebar re-render with the new name. Omitted
+     * fields keep their stored value, so setting the name never resets the chart
+     * toggle and vice versa.
+     */
     function writePrefs(next) {
+      const current = readPrefs();
+      const label = next !== null && typeof next === 'object' && next.label !== undefined
+        ? cleanLabel(next.label)
+        : current.label;
+      const chart = next !== null && typeof next === 'object' && next.chart !== undefined
+        ? next.chart !== false
+        : current.chart;
       try {
-        window.localStorage.setItem(PREFS_KEY, JSON.stringify({ label: cleanLabel(next.label) }));
+        window.localStorage.setItem(PREFS_KEY, JSON.stringify({ label, chart }));
       } catch {
         /* The name change is a convenience; the panel still works without it. */
       }
@@ -636,8 +723,11 @@ window.__ModuleLoader__.load({
       const [dropAt, setDropAt] = React.useState(null);
       const [notice, setNotice] = React.useState('');
       const [matches, setMatches] = React.useState([]);
+      const [chart, setChart] = React.useState(() => readPrefs().chart);
+      const [trends, setTrends] = React.useState({});
       const symbolsRef = React.useRef(symbols);
       symbolsRef.current = symbols;
+      const trendsRef = React.useRef({});
       const menuRef = React.useRef(null);
       const headCheckRef = React.useRef(null);
       const noticeTimer = React.useRef(null);
@@ -676,6 +766,49 @@ window.__ModuleLoader__.load({
         }, REFRESH_MS);
         return () => window.clearInterval(id);
       }, [auto, runRefresh]);
+
+      // Intraday lines, only while the chart column is on. One request per entry,
+      // refreshed at most every CHART_TTL so a 15-second quote tick does not turn
+      // into a burst of history requests.
+      React.useEffect(() => {
+        if (!chart) return undefined;
+        let cancelled = false;
+        const load = async () => {
+          const wanted = symbolsRef.current.filter((symbol) => {
+            const entry = trendsRef.current[symbol];
+            return entry === undefined || Date.now() - entry.at > CHART_TTL;
+          }).slice(0, 20);
+          if (wanted.length === 0) return;
+          const settled = await Promise.all(wanted.map(async (symbol) => {
+            try {
+              const points = await fetchTrend(symbol);
+              return [symbol, points];
+            } catch {
+              return null;
+            }
+          }));
+          if (cancelled) return;
+          const next = { ...trendsRef.current };
+          let changed = false;
+          for (const item of settled) {
+            if (item === null) continue;
+            next[item[0]] = { at: Date.now(), points: item[1] };
+            changed = true;
+          }
+          if (!changed) return;
+          trendsRef.current = next;
+          setTrends(next);
+        };
+        void load();
+        const id = window.setInterval(() => {
+          if (document.visibilityState === 'hidden') return;
+          void load();
+        }, CHART_TTL);
+        return () => {
+          cancelled = true;
+          window.clearInterval(id);
+        };
+      }, [chart, symbols]);
 
       // Close the context menu on anything that would leave it stranded.
       React.useEffect(() => {
@@ -845,6 +978,39 @@ window.__ModuleLoader__.load({
 
       const quoteBySymbol = new Map(view.quotes.map((quote) => [quote.symbol, quote]));
 
+      /**
+       * The sparkline cell. Colour follows the day's change, the same convention as
+       * the numbers (red up, green down), and a flat day stays neutral.
+       */
+      const chartCell = (symbol, quote) => {
+        const entry = trends[symbol];
+        const path = entry === undefined ? '' : sparklinePath(entry.points);
+        const change = quote === undefined ? undefined : quote.change;
+        const stroke = change === undefined || change === 0
+          ? 'var(--dsw-alias-state-idle-primary)'
+          : change > 0
+            ? 'var(--dsw-alias-state-error-primary)'
+            : 'var(--dsw-alias-state-success-primary)';
+        // The cell is always present while the column is on, even before the series
+        // lands: a missing cell would shift every later column in that row.
+        return h('div', { className: 'dsq-chart', role: 'cell' },
+          path === '' ? null : h('svg', {
+            viewBox: '0 0 88 24',
+            preserveAspectRatio: 'none',
+            'aria-hidden': true,
+            focusable: 'false',
+          },
+          h('path', {
+            d: path,
+            fill: 'none',
+            stroke,
+            strokeWidth: '1.2',
+            strokeLinecap: 'round',
+            strokeLinejoin: 'round',
+            vectorEffect: 'non-scaling-stroke',
+          })));
+      };
+
       const rowFor = (symbol) => {
         const quote = quoteBySymbol.get(symbol);
         const tone = quote === undefined ? '' : `dsq-${toneOf(quote.change)}`;
@@ -858,7 +1024,7 @@ window.__ModuleLoader__.load({
           drag === symbol ? 'dsq-dragging' : '',
         ].filter((part) => part !== '').join(' ');
 
-        const cells = quote === undefined
+        const numeric = quote === undefined
           ? [0, 1, 2, 3, 4, 5, 6].map((index) => h('div', { className: 'dsq-num', role: 'cell', key: `dash${index}` }, '—'))
           : [
             h('div', { className: `dsq-num ${tone}`, role: 'cell' }, fmt(quote.price)),
@@ -869,6 +1035,9 @@ window.__ModuleLoader__.load({
             h('div', { className: 'dsq-num', role: 'cell' }, fmt(quote.low)),
             h('div', { className: 'dsq-num', role: 'cell' }, fmtAmount(quote.amount)),
           ];
+        // Build the child list instead of emitting a null placeholder, so the row and
+        // the header always agree on how many cells they have.
+        const rowCells = chart ? [chartCell(symbol, quote), ...numeric] : numeric;
 
         return h('div', {
           className,
@@ -917,7 +1086,7 @@ window.__ModuleLoader__.load({
         h('div', { className: 'dsq-id', role: 'cell' },
           h('span', { className: 'dsq-name' }, quote === undefined ? symbol : (quote.name || quote.code)),
           h('span', { className: 'dsq-code' }, quote === undefined ? t('panel.unresolved') : `${symbol} · ${quote.market}`)),
-        ...cells);
+        ...rowCells);
       };
 
       const allSelected = symbols.length > 0 && selected.size === symbols.length;
@@ -935,6 +1104,7 @@ window.__ModuleLoader__.load({
           })),
         h('div', { className: 'dsq-grip-cell', role: 'columnheader', 'aria-hidden': 'true' }),
         h('div', { role: 'columnheader' }, t('col.name')),
+        ...(chart ? [h('div', { className: 'dsq-chart', role: 'columnheader' }, t('col.trend'))] : []),
         h('div', { className: 'dsq-num', role: 'columnheader' }, t('col.price')),
         h('div', { className: 'dsq-num', role: 'columnheader' }, t('col.change')),
         h('div', { className: 'dsq-num', role: 'columnheader' }, t('col.pct')),
@@ -1053,7 +1223,19 @@ window.__ModuleLoader__.load({
                   'aria-checked': auto,
                   'aria-label': t('panel.auto'),
                   onClick: () => setAuto((value) => !value),
-                }, `${t('panel.auto')} ${auto ? '· 15s' : ''}`.trim())),
+                }, `${t('panel.auto')} ${auto ? '· 15s' : ''}`.trim()),
+                h('button', {
+                  type: 'button',
+                  className: 'dsq-btn',
+                  role: 'switch',
+                  'aria-checked': chart,
+                  'aria-label': t('panel.chart'),
+                  onClick: () => {
+                    const next = !chart;
+                    setChart(next);
+                    writePrefs({ chart: next });
+                  },
+                }, t('panel.chart'))),
               selected.size === 0
                 ? null
                 : h('div', { className: 'dsq-selbar' },
@@ -1080,7 +1262,7 @@ window.__ModuleLoader__.load({
                   }, t('batch.clear'))),
               symbols.length === 0
                 ? h('div', { className: 'dsq-empty' }, t('panel.empty'))
-                : h('div', { className: 'dsq-tablewrap', role: 'table' },
+                : h('div', { className: chart ? 'dsq-tablewrap dsq-chart-on' : 'dsq-tablewrap', role: 'table' },
                   h('div', { className: 'dsq-grid' }, headRow, symbols.map(rowFor))),
               view.status === 'error'
                 ? h('button', {
@@ -1205,6 +1387,7 @@ window.__ModuleLoader__.load({
           'panel.convention': FALLBACK_TEXT['panel.convention'],
           'panel.source': FALLBACK_TEXT['panel.source'],
           'panel.drag': FALLBACK_TEXT['panel.drag'],
+          'panel.chart': FALLBACK_TEXT['panel.chart'],
           'panel.copied': FALLBACK_TEXT['panel.copied'],
           'panel.copyFailed': FALLBACK_TEXT['panel.copyFailed'],
           'menu.title': FALLBACK_TEXT['menu.title'],
@@ -1223,6 +1406,7 @@ window.__ModuleLoader__.load({
           'batch.bottom': FALLBACK_TEXT['batch.bottom'],
           'batch.clear': FALLBACK_TEXT['batch.clear'],
           'col.name': FALLBACK_TEXT['col.name'],
+          'col.trend': FALLBACK_TEXT['col.trend'],
           'col.price': FALLBACK_TEXT['col.price'],
           'col.change': FALLBACK_TEXT['col.change'],
           'col.pct': FALLBACK_TEXT['col.pct'],
@@ -1258,6 +1442,7 @@ window.__ModuleLoader__.load({
           'panel.convention': 'red up / green down',
           'panel.source': 'Source: Eastmoney',
           'panel.drag': 'Drag to reorder',
+          'panel.chart': 'Charts',
           'panel.copied': 'Symbols copied',
           'panel.copyFailed': 'Copy failed',
           'menu.title': 'Watchlist actions',
@@ -1276,6 +1461,7 @@ window.__ModuleLoader__.load({
           'batch.bottom': 'Move to bottom',
           'batch.clear': 'Clear selection',
           'col.name': 'Name / symbol',
+          'col.trend': 'Trend',
           'col.price': 'Price',
           'col.change': 'Change',
           'col.pct': 'Change %',
@@ -1352,7 +1538,7 @@ window.__ModuleLoader__.load({
       inject: ['slots', 'locale'],
       apply,
       /** Pure helpers, exported so the smoke test can exercise them. */
-      internals: { reorderList, moveNextTo, candidateSecids, searchIndex },
+      internals: { reorderList, moveNextTo, candidateSecids, searchIndex, sparklinePath, fetchTrend },
     };
   },
 });

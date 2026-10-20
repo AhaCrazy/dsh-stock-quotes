@@ -45,10 +45,21 @@ plugin_manager  action: remove_bundle  target: dsh-stock-quotes
 | **Multi-select** | Checkbox on each row; the header checkbox selects / clears everything |
 | **Batch** | With ≥1 selected, a bar appears: delete selected / move to top / move to bottom / clear |
 | Other menu items | Copy symbols (newline-joined), select all, clear selection |
+| **Charts** | The "Charts" button in the toolbar toggles a per-row intraday line |
 
 The context menu is **selection-aware**: if the right-clicked row is part of a multi-selection, delete/move/copy act on the whole selection and the labels carry the count; otherwise they act on that one row.
 
 Order and membership persist in the browser (`localStorage`, key `dsh-stock-quotes/watchlist`). Rows always render in watchlist order and quotes are mapped by symbol, so reordering can never desynchronize a code from its price.
+
+## Charts
+
+The **Charts** button in the toolbar toggles a per-row **intraday line** (today's session). The choice is stored in `localStorage` (`chart` in `dsh-stock-quotes/prefs`) and is **on by default**.
+
+- Data comes from Eastmoney's intraday endpoint; A-shares, Hong Kong, US and boards all work (US shows the latest session)
+- Refreshed every 60 seconds, deliberately not tied to the 15-second quote tick, so it cannot become a request storm
+- Colour follows the day's move — red up, green down, neutral when flat — matching the number columns
+- With charts off, **no trend request is made**; only the numbers remain
+- A row whose series has not arrived yet keeps an empty cell, so columns never shift
 
 ## Display name
 

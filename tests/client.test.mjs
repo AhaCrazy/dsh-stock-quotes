@@ -159,6 +159,17 @@ check('blank query yields nothing', searchIndex(SAMPLE, '   '), []);
 check('limit is respected', searchIndex(SAMPLE, '茅台', 1).length, 1);
 check('malformed entries are skipped', searchIndex([null, ['ok', 'sh600000'], []], 'ok').length, 1);
 
+// --- the sparkline path ----------------------------------------------------
+const { sparklinePath } = mod.internals;
+check('two points draw a line', sparklinePath([10, 20]).startsWith('M'), true);
+check('series stretches over the full width', sparklinePath([10, 20]).endsWith('88.00 1.00'), true);
+check('flat series sits on the midline', sparklinePath([5, 5, 5]).includes(' 12.00'), true);
+check('one point draws nothing', sparklinePath([5]), '');
+check('empty series draws nothing', sparklinePath([]), '');
+check('non-numeric points are ignored', sparklinePath([5, null, 7, 'x', 9]).split('L').length, 3);
+check('upward series ends at the top', sparklinePath([1, 2, 3]).endsWith('88.00 1.00'), true);
+check('downward series ends at the bottom', sparklinePath([3, 2, 1]).endsWith('88.00 23.00'), true);
+
 // --- fake Cordis client context -------------------------------------------
 const registered = [];
 const injected = [];
@@ -267,6 +278,22 @@ check('row tracks drag over', typeof firstRow.props.onDragOver, 'function');
 const headRow = collect(pageTree).find((node) => node.props && node.props.className === 'dsq-row dsq-headrow');
 check('header has a select-all checkbox', headRow.children[0].children[0].props.type, 'checkbox');
 check('header column count matches the body', headRow.children.length, firstRow.children.length);
+
+// --- the trend column ------------------------------------------------------
+const chartCells = (tree) => collect(tree).filter((node) => node.props && node.props.className === 'dsq-chart');
+const tablewrapOf = (tree) => collect(tree).find((node) => node.props && node.props.className !== undefined && String(node.props.className).includes('dsq-tablewrap'));
+check('charts are on by default', chartCells(pageTree).length, rows.length + 1);
+check('the table carries the chart class', String(tablewrapOf(pageTree).props.className).includes('dsq-chart-on'), true);
+check('the chart header is present', chartCells(pageTree)[0].props.role, 'columnheader');
+check('a chart cell is emitted even before the series lands', chartCells(pageTree)[1].children.filter(Boolean).length, 0);
+
+setPrefs({ chart: false });
+const plainTree = byName('main')[0].component({ t });
+const plainRows = rowsOf(plainTree);
+check('charts are off when the preference says so', chartCells(plainTree).length, 0);
+check('the table drops the chart class', String(tablewrapOf(plainTree).props.className).includes('dsq-chart-on'), false);
+check('rows stay aligned without the column', plainRows[0].children.length, rows[0].children.length - 1);
+store.delete('dsh-stock-quotes/prefs');
 
 // --- source hygiene --------------------------------------------------------
 const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8');
