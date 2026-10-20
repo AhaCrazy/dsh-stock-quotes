@@ -51,6 +51,9 @@ check('AAPL.US', candidateSecids('AAPL.US'), ['105.AAPL', '106.AAPL', '107.AAPL'
 check('AAPL.O (NASDAQ)', candidateSecids('AAPL.O'), ['105.AAPL', '106.AAPL', '107.AAPL']);
 check('000300.SH keeps the index on market 1', candidateSecids('000300.SH'), ['1.000300']);
 check('explicit market has no fallback', candidateSecids('600519.SZ'), ['0.600519']);
+check('BK1036 board', candidateSecids('BK1036'), ['90.BK1036']);
+check('bk1036 lowercase board', candidateSecids('bk1036'), ['90.BK1036']);
+check('90.BK1036 secid passthrough', candidateSecids('90.BK1036'), ['90.BK1036']);
 
 check('unknown suffix is not a market', candidateSecids('600519.XQ'), []);
 check('garbage', candidateSecids('??'), []);

@@ -30,8 +30,8 @@ const US_MARKETS = [105, 106, 107];
 export const SYMBOL_HELP =
   'Accepted symbol spellings: A-share `600519`, `sh600519`, `sz000001`, `bj430047`, `600519.SH`, `000001.SZ`; '
   + 'Hong Kong `00700`, `hk00700`, `00700.HK`; US `AAPL`, `usAAPL`, `AAPL.US`; '
-  + 'or a raw Eastmoney secid such as `1.600519`. A bare 1-5 digit number is read as Hong Kong. '
-  + 'Chinese names are not resolved; pass a code.';
+  + 'or a raw Eastmoney secid such as `1.600519`. A bare 1-5 digit number is read as Hong Kong, '
+  + 'and Eastmoney boards use `BK1036`. Chinese names are not resolved by this tool; pass a code.';
 
 /**
  * Pad a Hong Kong code to its five-digit form (`700` -> `00700`).
@@ -108,6 +108,8 @@ export function candidateSecids(input) {
     return [...secidsForMarket(primary, body), ...secidsForMarket(secondary, body)];
   }
   if (/^\d{1,5}$/.test(body)) return secidsForMarket('hk', body);
+  // Eastmoney boards (板块) live on market 90: `BK1036` is the 半导体 board.
+  if (/^BK\d+$/.test(body)) return [`90.${body}`];
   if (/^[A-Z][A-Z0-9.-]*$/.test(body)) return secidsForMarket('us', body);
   return [];
 }
@@ -136,6 +138,7 @@ export function marketName(market, code) {
   switch (market) {
     case 1: return 'SH';
     case 0: return /^(4|8|92)/.test(String(code)) ? 'BJ' : 'SZ';
+    case 90: return 'BK';
     case 116: return 'HK';
     case 105: return 'NASDAQ';
     case 106: return 'NYSE';

@@ -39,7 +39,7 @@ plugin_manager  action: remove_bundle  target: dsh-stock-quotes
 
 | Action | How |
 |---|---|
-| Add | Type a symbol in the top input, press Enter |
+| Add | Type a symbol or board name in the top input, press Enter |
 | **Delete** | **Right-click a row** → menu → Delete (there is no per-row ✕ button) |
 | **Reorder** | Drag the ⠿ handle; a brand-colored line shows the drop position — or use the right-click menu's move items |
 | **Multi-select** | Checkbox on each row; the header checkbox selects / clears everything |
@@ -67,13 +67,29 @@ The sidebar label, the panel heading and the notification text all use one confi
 
 **Ambiguous bare six-digit codes**: both markets are tried and the first that answers wins. So `000300` (沪深300, Shanghai only) falls through to `1.000300`, while `000001` exists on both and defaults to Shenzhen (平安银行) — write `sh000001` or `000001.SH` for the Shanghai index. An explicit prefix or suffix is authoritative and never falls back, so a wrong market reports "not found" rather than silently picking another listing.
 
+## Boards (板块)
+
+Eastmoney's industry and concept boards come through the same quote endpoint, and the panel can add them directly:
+
+| Spelling | Examples |
+|---|---|
+| Eastmoney board code | `BK1036` (半导体), `BK0891` (国产芯片) |
+| **Board name** (panel only) | type `半导体`, `白酒`, `存储芯片` — exact name match first, then a unique substring match |
+| Raw secid | `90.BK1036` |
+
+Three things to know:
+
+1. **同花顺's board codes (`88xxxx`, e.g. `881121`) are a proprietary encoding with no public mapping**, so they cannot be added as-is — use the name or the Eastmoney code instead: `881121` is 半导体, so type `半导体` or `BK1036`.
+2. The two sources have **different constituents and weights**, so the index level and change will differ (measured at the same moment: Eastmoney 半导体 `+3.47%`, 同花顺 `+3.25%`). Matching 同花顺 exactly is not possible.
+3. Name lookup happens in the panel only; `stock_quote` takes the code, e.g. `BK1036`.
+
 ## Coverage
 
 The data comes from Eastmoney's public quote endpoint, so what you can add is what it covers:
 
-- ✅ A-shares, Beijing, Hong Kong, US, indices, ETFs / LOFs, convertible bonds, B-shares
-- ❌ Delisted or retired codes (e.g. `110043`), off-exchange fund NAVs, futures, options, sectors, FX — if a code is visible in 同花顺 but not here, it is almost always one of these
-- ❌ Chinese-name search: not supported (the public search endpoints send no CORS header, so the browser cannot read them) — use a code
+- ✅ A-shares, Beijing, Hong Kong, US, indices, ETFs / LOFs, convertible bonds, B-shares, boards (`BKxxxx`)
+- ❌ Delisted or retired codes (e.g. `110043`), off-exchange fund NAVs, futures, options, FX
+- ❌ Chinese stock-name search: not supported (the public search endpoints send no CORS header, so the browser cannot read them) — use a code; board names are the exception, see above
 
 If a code you can see in 同花顺 does not resolve, try it with its full suffix (`600519.SH`); if that still fails, the data source does not carry it.
 

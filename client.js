@@ -32,8 +32,11 @@ window.__ModuleLoader__.load({
       'panel.auto': '自动刷新',
       'panel.refresh': '刷新',
       'panel.add': '添加',
-      'panel.placeholder': '代码，如 600519、600519.SH、00700、AAPL',
-      'panel.empty': '自选股为空。在上面输入代码后回车即可添加。',
+      'panel.placeholder': '代码或板块名，如 600519、半导体、00700',
+      'panel.empty': '自选股为空。在上面输入代码或板块名后回车即可添加。',
+      'panel.notFound': '未找到该代码或板块',
+      'panel.resolving': '查询板块…',
+      'panel.thsBoardCode': '同花顺板块码无法直接使用，请输入板块名称（如 半导体）或东财代码 BK1036',
       'panel.loading': '加载中…',
       'panel.error': '行情获取失败',
       'panel.retry': '重试',
@@ -198,8 +201,65 @@ window.__ModuleLoader__.load({
         return [...secidsForMarket(primary, body), ...secidsForMarket(secondary, body)];
       }
       if (/^\d{1,5}$/.test(body)) return secidsForMarket('hk', body);
+      // Eastmoney boards (板块) live on market 90: `BK1036` is the 半导体 board.
+      if (/^BK\d+$/.test(body)) return [`90.${body}`];
       if (/^[A-Z][A-Z0-9.-]*$/.test(body)) return secidsForMarket('us', body);
       return [];
+    }
+
+    /**
+     * Board (板块) names resolve against Eastmoney's own index, which this page can
+     * read directly. The index is ~1000 rows across ten pages, so it is fetched on
+     * demand and cached for a while instead of on every keystroke.
+     */
+    const BOARD_FAMILIES = ['m:90+t:2+f:!50', 'm:90+t:3+f:!50'];
+    const BOARD_TTL = 10 * 60 * 1000;
+    let boardIndex = null;
+    let boardIndexAt = 0;
+
+    /** Eastmoney appends Ⅱ/Ⅲ to split boards, so ignore that suffix when matching. */
+    function boardNameKey(name) {
+      return String(name).trim().replace(/[/\u2161-\u2163]$/, '');
+    }
+
+    async function fetchBoardIndex() {
+      if (boardIndex !== null && Date.now() - boardIndexAt < BOARD_TTL) return boardIndex;
+      const rows = [];
+      for (const family of BOARD_FAMILIES) {
+        for (let page = 1; page <= 6; page += 1) {
+          const url = 'https://push2.eastmoney.com/api/qt/clist/get'
+            + `?pn=${page}&pz=100&po=1&np=1&fltt=2&invt=2&fid=f3&fs=${family}&fields=f12,f14`;
+          const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
+          if (!response.ok) break;
+          const payload = await response.json();
+          const chunk = payload?.data?.diff ?? [];
+          if (chunk.length === 0) break;
+          rows.push(...chunk);
+        }
+      }
+      const index = new Map();
+      for (const row of rows) {
+        const name = boardNameKey(row.f14);
+        const code = String(row.f12 ?? '');
+        if (name !== '' && code !== '' && !index.has(name)) index.set(name, code);
+      }
+      boardIndex = index;
+      boardIndexAt = Date.now();
+      return index;
+    }
+
+    /**
+     * Resolve a board name to its Eastmoney code.
+     * @param query - what the user typed, e.g. `半导体`.
+     * @returns The `BKxxxx` code, or an empty string when there is no unique match.
+     */
+    async function resolveBoard(query) {
+      const wanted = boardNameKey(query);
+      if (wanted.length < 2) return '';
+      const index = await fetchBoardIndex();
+      if (index.has(wanted)) return index.get(wanted);
+      const hits = [...index.entries()].filter(([name]) => name.includes(wanted) || wanted.includes(name));
+      return hits.length === 1 ? hits[0][1] : '';
     }
 
     function toNumber(value) {
@@ -582,14 +642,44 @@ window.__ModuleLoader__.load({
         );
       };
 
-      const addSymbol = (event) => {
+      const addingRef = React.useRef(false);
+
+      const addSymbol = async (event) => {
         event.preventDefault();
+        if (addingRef.current) return;
         const value = draft.trim();
         if (value === '') return;
-        setSymbols((previous) => (previous.some((entry) => entry.toLowerCase() === value.toLowerCase())
-          ? previous
-          : previous.concat(value)));
-        setDraft('');
+        const commit = (entry) => {
+          setSymbols((previous) => (previous.some((item) => item.toLowerCase() === entry.toLowerCase())
+            ? previous
+            : previous.concat(entry)));
+          setDraft('');
+        };
+        if (candidateSecids(value).length > 0) {
+          commit(value);
+          return;
+        }
+        // Not a code. A 同花顺 board code (88xxxx) is private to 同花顺 and has no
+        // public mapping, so point at the two spellings that do work.
+        if (/^88\d{4}$/.test(value)) {
+          flash(t('panel.thsBoardCode'));
+          return;
+        }
+        if (!/[\u4e00-\u9fa5]/.test(value)) {
+          flash(t('panel.notFound'));
+          return;
+        }
+        addingRef.current = true;
+        flash(t('panel.resolving'));
+        try {
+          const code = await resolveBoard(value);
+          if (code === '') flash(t('panel.notFound'));
+          else commit(code);
+        } catch {
+          flash(t('panel.notFound'));
+        } finally {
+          addingRef.current = false;
+        }
       };
 
       const toggleSelected = (symbol) => {
@@ -967,6 +1057,9 @@ window.__ModuleLoader__.load({
           'panel.add': FALLBACK_TEXT['panel.add'],
           'panel.placeholder': FALLBACK_TEXT['panel.placeholder'],
           'panel.empty': FALLBACK_TEXT['panel.empty'],
+          'panel.notFound': FALLBACK_TEXT['panel.notFound'],
+          'panel.resolving': FALLBACK_TEXT['panel.resolving'],
+          'panel.thsBoardCode': FALLBACK_TEXT['panel.thsBoardCode'],
           'panel.loading': FALLBACK_TEXT['panel.loading'],
           'panel.error': FALLBACK_TEXT['panel.error'],
           'panel.retry': FALLBACK_TEXT['panel.retry'],
@@ -1015,8 +1108,11 @@ window.__ModuleLoader__.load({
           'panel.auto': 'Auto refresh',
           'panel.refresh': 'Refresh',
           'panel.add': 'Add',
-          'panel.placeholder': 'Symbol, e.g. 600519, 600519.SH, 00700, AAPL',
-          'panel.empty': 'Your watchlist is empty. Type a symbol above and press Enter.',
+          'panel.placeholder': 'Symbol or board name, e.g. 600519, 半导体, 00700',
+          'panel.empty': 'Your watchlist is empty. Type a symbol or board name above and press Enter.',
+          'panel.notFound': 'No symbol or board matches that',
+          'panel.resolving': 'Looking up boards…',
+          'panel.thsBoardCode': 'A 同花顺 board code cannot be used here; type the board name (e.g. 半导体) or the Eastmoney code BK1036',
           'panel.loading': 'Loading…',
           'panel.error': 'Quote request failed',
           'panel.retry': 'Retry',
