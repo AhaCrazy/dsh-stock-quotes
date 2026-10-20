@@ -58,12 +58,24 @@ The sidebar label, the panel heading and the notification text all use one confi
 
 | Market | Spellings | Examples |
 |---|---|---|
-| Shanghai | 6 digits, or `sh` prefix | `600519`, `sh600519`, `688981`, `900901` |
-| Shenzhen | 6 digits, or `sz` prefix | `000001`, `sz000001`, `300750` |
-| Beijing | 6 digits, or `bj` prefix | `430047`, `830799`, `920001` |
-| Hong Kong | 1–5 digits, or `hk` prefix | `00700`, `700`, `hk00700` |
-| US | letters, or `us` prefix | `AAPL`, `usAAPL`, `BRK.B` (matched across NASDAQ / NYSE / AMEX) |
+| Shanghai | 6 digits, `sh` prefix, `.SH`/`.SS` suffix | `600519`, `sh600519`, `600519.SH`, `688981`, `900901` |
+| Shenzhen | 6 digits, `sz` prefix, `.SZ` suffix | `000001`, `sz000001`, `000001.SZ`, `300750` |
+| Beijing | 6 digits, `bj` prefix, `.BJ` suffix | `430047`, `830799`, `920001` |
+| Hong Kong | 1–5 digits, `hk` prefix, `.HK` suffix | `00700`, `700`, `hk00700`, `00700.HK` |
+| US | letters, `us` prefix, `.US`/`.O`/`.N` suffix | `AAPL`, `usAAPL`, `AAPL.US`, `BRK.B` (matched across NASDAQ / NYSE / AMEX) |
 | Raw secid | `market.code` | `1.600519`, `116.00700` |
+
+**Ambiguous bare six-digit codes**: both markets are tried and the first that answers wins. So `000300` (沪深300, Shanghai only) falls through to `1.000300`, while `000001` exists on both and defaults to Shenzhen (平安银行) — write `sh000001` or `000001.SH` for the Shanghai index. An explicit prefix or suffix is authoritative and never falls back, so a wrong market reports "not found" rather than silently picking another listing.
+
+## Coverage
+
+The data comes from Eastmoney's public quote endpoint, so what you can add is what it covers:
+
+- ✅ A-shares, Beijing, Hong Kong, US, indices, ETFs / LOFs, convertible bonds, B-shares
+- ❌ Delisted or retired codes (e.g. `110043`), off-exchange fund NAVs, futures, options, sectors, FX — if a code is visible in 同花顺 but not here, it is almost always one of these
+- ❌ Chinese-name search: not supported (the public search endpoints send no CORS header, so the browser cannot read them) — use a code
+
+If a code you can see in 同花顺 does not resolve, try it with its full suffix (`600519.SH`); if that still fails, the data source does not carry it.
 
 ## Configuration
 

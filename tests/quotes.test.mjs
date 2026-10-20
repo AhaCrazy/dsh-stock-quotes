@@ -16,14 +16,17 @@ const check = (label, actual, expected) => {
 };
 
 console.log('--- candidateSecids ---');
-check('600519', candidateSecids('600519'), ['1.600519']);
-check('000001', candidateSecids('000001'), ['0.000001']);
-check('300750', candidateSecids('300750'), ['0.300750']);
-check('688981', candidateSecids('688981'), ['1.688981']);
-check('430047 (BJ)', candidateSecids('430047'), ['0.430047']);
-check('830799 (BJ)', candidateSecids('830799'), ['0.830799']);
-check('920001 (BJ 92x)', candidateSecids('920001'), ['0.920001']);
-check('900901 (SH B)', candidateSecids('900901'), ['1.900901']);
+// A bare six-digit code is ambiguous, so both markets are offered and the first
+// one that answers wins; an explicit market is authoritative.
+check('600519', candidateSecids('600519'), ['1.600519', '0.600519']);
+check('000001', candidateSecids('000001'), ['0.000001', '1.000001']);
+check('300750', candidateSecids('300750'), ['0.300750', '1.300750']);
+check('688981', candidateSecids('688981'), ['1.688981', '0.688981']);
+check('430047 (BJ)', candidateSecids('430047'), ['0.430047', '1.430047']);
+check('830799 (BJ)', candidateSecids('830799'), ['0.830799', '1.830799']);
+check('920001 (BJ 92x)', candidateSecids('920001'), ['0.920001', '1.920001']);
+check('900901 (SH B)', candidateSecids('900901'), ['1.900901', '0.900901']);
+check('000300 (index, market 0 empty first)', candidateSecids('000300'), ['0.000300', '1.000300']);
 check('sh600519', candidateSecids('sh600519'), ['1.600519']);
 check('SH.600519', candidateSecids('SH.600519'), ['1.600519']);
 check('sz000001', candidateSecids('sz000001'), ['0.000001']);
@@ -34,8 +37,22 @@ check('hk00700', candidateSecids('hk00700'), ['116.00700']);
 check('hk 700', candidateSecids('hk 700'), ['116.00700']);
 check('AAPL (US)', candidateSecids('AAPL'), ['105.AAPL', '106.AAPL', '107.AAPL']);
 check('usAAPL', candidateSecids('usAAPL'), ['105.AAPL', '106.AAPL', '107.AAPL']);
-check('brk.b', candidateSecids('BRK.B'), ['105.BRK.B', '106.BRK.B', '107.BRK.B']);
+check('brk.b stays a US ticker', candidateSecids('BRK.B'), ['105.BRK.B', '106.BRK.B', '107.BRK.B']);
 check('secid passthrough', candidateSecids('1.600519'), ['1.600519']);
+
+console.log('--- suffix notation (同花顺 / 通达信 exports) ---');
+check('600519.SH', candidateSecids('600519.SH'), ['1.600519']);
+check('600519.SS (Yahoo SH)', candidateSecids('600519.SS'), ['1.600519']);
+check('600519.sh lowercase', candidateSecids('600519.sh'), ['1.600519']);
+check('000001.SZ', candidateSecids('000001.SZ'), ['0.000001']);
+check('830799.BJ', candidateSecids('830799.BJ'), ['0.830799']);
+check('00700.HK', candidateSecids('00700.HK'), ['116.00700']);
+check('AAPL.US', candidateSecids('AAPL.US'), ['105.AAPL', '106.AAPL', '107.AAPL']);
+check('AAPL.O (NASDAQ)', candidateSecids('AAPL.O'), ['105.AAPL', '106.AAPL', '107.AAPL']);
+check('000300.SH keeps the index on market 1', candidateSecids('000300.SH'), ['1.000300']);
+check('explicit market has no fallback', candidateSecids('600519.SZ'), ['0.600519']);
+
+check('unknown suffix is not a market', candidateSecids('600519.XQ'), []);
 check('garbage', candidateSecids('??'), []);
 check('empty', candidateSecids('   '), []);
 check('non-string', candidateSecids(42), []);

@@ -32,7 +32,7 @@ window.__ModuleLoader__.load({
       'panel.auto': '自动刷新',
       'panel.refresh': '刷新',
       'panel.add': '添加',
-      'panel.placeholder': '代码，如 sh600519 / 00700 / AAPL',
+      'panel.placeholder': '代码，如 600519、600519.SH、00700、AAPL',
       'panel.empty': '自选股为空。在上面输入代码后回车即可添加。',
       'panel.loading': '加载中…',
       'panel.error': '行情获取失败',
@@ -151,28 +151,54 @@ window.__ModuleLoader__.load({
       return digits === '' ? '00000' : digits.padStart(5, '0');
     }
 
-    /** Expand one spelling into the secids worth trying, best first. */
+    /** Secids for one market: 1 = Shanghai, 0 = Shenzhen/Beijing, 116 = HK, 105-107 = US. */
+    function secidsForMarket(market, body) {
+      if (market === 'sh') return [`1.${body}`];
+      if (market === 'sz' || market === 'bj') return [`0.${body}`];
+      if (market === 'hk') return [`116.${hkCode(body)}`];
+      if (market === 'us') return US_MARKETS.map((secidMarket) => `${secidMarket}.${body}`);
+      return [];
+    }
+
+    /** Exchange suffixes seen in exports from 同花顺 / 通达信 / Yahoo. */
+    const SUFFIX_MARKETS = {
+      SH: 'sh', SS: 'sh', SZ: 'sz', BJ: 'bj', HK: 'hk', US: 'us', O: 'us', N: 'us', A: 'us',
+    };
+
+    /**
+     * Expand one spelling into the secids worth trying, best first. Mirrors
+     * `quotes.js`: prefix and suffix notation, Hong Kong and US codes, and both
+     * markets for an ambiguous bare six-digit A-share code.
+     */
     function candidateSecids(input) {
       if (typeof input !== 'string') return [];
       const raw = input.trim();
       if (raw === '') return [];
-      if (/^\d+\.[A-Za-z0-9]+$/.test(raw)) return [raw];
+
+      const suffixed = /^([^.\-]+)[.\-]([A-Za-z]{1,2})$/.exec(raw);
+      if (suffixed !== null) {
+        const market = SUFFIX_MARKETS[suffixed[2].toUpperCase()];
+        const suffixedBody = suffixed[1].trim().toUpperCase();
+        if (market !== undefined && suffixedBody !== '') return secidsForMarket(market, suffixedBody);
+      }
+
+      if (/^\d{1,3}\.[A-Za-z0-9._-]+$/.test(raw)) return [raw];
+
       const prefixed = /^(sh|sz|bj|hk|us|nasdaq|nyse)[.:_-]?(.+)$/i.exec(raw);
       const prefix = prefixed === null ? '' : prefixed[1].toLowerCase();
       const body = (prefixed === null ? raw : prefixed[2]).trim().toUpperCase();
       if (body === '') return [];
-      if (prefix === 'sh') return [`1.${body}`];
-      if (prefix === 'sz' || prefix === 'bj') return [`0.${body}`];
-      if (prefix === 'hk') return [`116.${hkCode(body)}`];
-      if (prefix === 'us' || prefix === 'nasdaq' || prefix === 'nyse') {
-        return US_MARKETS.map((market) => `${market}.${body}`);
-      }
+
+      if (prefix === 'nasdaq' || prefix === 'nyse') return secidsForMarket('us', body);
+      if (prefix !== '') return secidsForMarket(prefix, body);
+
       if (/^\d{6}$/.test(body)) {
-        if (/^92\d{4}$/.test(body)) return [`0.${body}`];
-        return [/^[569]/.test(body) ? `1.${body}` : `0.${body}`];
+        const primary = /^92\d{4}$/.test(body) ? 'sz' : (/^[569]/.test(body) ? 'sh' : 'sz');
+        const secondary = primary === 'sh' ? 'sz' : 'sh';
+        return [...secidsForMarket(primary, body), ...secidsForMarket(secondary, body)];
       }
-      if (/^\d{1,5}$/.test(body)) return [`116.${hkCode(body)}`];
-      if (/^[A-Z][A-Z0-9.-]*$/.test(body)) return US_MARKETS.map((market) => `${market}.${body}`);
+      if (/^\d{1,5}$/.test(body)) return secidsForMarket('hk', body);
+      if (/^[A-Z][A-Z0-9.-]*$/.test(body)) return secidsForMarket('us', body);
       return [];
     }
 
@@ -989,7 +1015,7 @@ window.__ModuleLoader__.load({
           'panel.auto': 'Auto refresh',
           'panel.refresh': 'Refresh',
           'panel.add': 'Add',
-          'panel.placeholder': 'Symbol, e.g. sh600519 / 00700 / AAPL',
+          'panel.placeholder': 'Symbol, e.g. 600519, 600519.SH, 00700, AAPL',
           'panel.empty': 'Your watchlist is empty. Type a symbol above and press Enter.',
           'panel.loading': 'Loading…',
           'panel.error': 'Quote request failed',
