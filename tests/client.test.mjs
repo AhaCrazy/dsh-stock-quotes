@@ -93,7 +93,7 @@ check('module injects slots+locale', mod.inject, ['slots', 'locale']);
 check('module exports apply', typeof mod.apply, 'function');
 
 // --- pure list transforms --------------------------------------------------
-const { reorderList, moveNextTo } = mod.internals;
+const { reorderList, moveNextTo, candidateSecids: clientResolver } = mod.internals;
 check('top', reorderList(['a', 'b', 'c'], ['c'], 'top'), ['c', 'a', 'b']);
 check('bottom', reorderList(['a', 'b', 'c'], ['a'], 'bottom'), ['b', 'c', 'a']);
 check('up single', reorderList(['a', 'b', 'c'], ['b'], 'up'), ['b', 'a', 'c']);
@@ -112,6 +112,31 @@ check('drop after target', moveNextTo(['a', 'b', 'c'], ['a'], 'c', true), ['b', 
 check('drop onto itself is a no-op', moveNextTo(['a', 'b', 'c'], ['b'], 'b', true), ['a', 'b', 'c']);
 check('drop next to the neighbour', moveNextTo(['a', 'b', 'c'], ['a'], 'b', false), ['a', 'b', 'c']);
 check('unknown drop target is a no-op', moveNextTo(['a', 'b'], ['a'], 'zz', false), ['a', 'b']);
+
+// --- the two halves must resolve symbols identically ----------------------
+// The browser half cannot import quotes.js, so it carries a copy of the rules.
+// Drift between the copies would make the panel and the tool disagree about
+// what a spelling means, so compare them on everything people actually type.
+const { candidateSecids: hostResolver } = await import('../quotes.js');
+const SPELLINGS = [
+  '600519', '000001', '300750', '688981', '430047', '830799', '920001', '900901', '200002',
+  '000300', '000688', '000905', '510300', '159915', '161725', '128136',
+  'sh600519', 'sz000001', 'bj430047', 'hk00700', 'usAAPL', 'SH.600519', 'hk 700',
+  '600519.SH', '600519.SS', '600519.sh', '000001.SZ', '830799.BJ', '00700.HK',
+  'AAPL.US', 'AAPL.O', '000300.SH', '600519.SZ', '1.600519', '116.00700', '105.AAPL',
+  '00700', '700', 'AAPL', 'BRK.B', '600519.XQ', '??', '', '   ',
+];
+let drift = 0;
+for (const spelling of SPELLINGS) {
+  const mine = JSON.stringify(clientResolver(spelling));
+  const theirs = JSON.stringify(hostResolver(spelling));
+  if (mine !== theirs) {
+    drift += 1;
+    console.log(`FAIL resolver drift on ${JSON.stringify(spelling)}\n     client ${mine}\n     host   ${theirs}`);
+  }
+}
+check('client and host resolvers agree', drift, 0);
+check('client resolver rejects a non-string', clientResolver(42), []);
 
 // --- fake Cordis client context -------------------------------------------
 const registered = [];

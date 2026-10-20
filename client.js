@@ -1117,8 +1117,8 @@ window.__ModuleLoader__.load({
       name: NS,
       inject: ['slots', 'locale'],
       apply,
-      /** Pure list transforms, exported so the smoke test can exercise them. */
-      internals: { reorderList, moveNextTo },
+      /** Pure helpers, exported so the smoke test can exercise them. */
+      internals: { reorderList, moveNextTo, candidateSecids },
     };
   },
 });
