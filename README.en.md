@@ -83,6 +83,27 @@ Three things to know:
 2. The two sources have **different constituents and weights**, so the index level and change will differ (measured at the same moment: Eastmoney 半导体 `+3.47%`, 同花顺 `+3.25%`). Matching 同花顺 exactly is not possible.
 3. Name lookup happens in the panel only; `stock_quote` takes the code, e.g. `BK1036`.
 
+## Search (add by name)
+
+You do not need to know the code — typing in the input pops suggestions (name + canonical code) and one click adds the entry:
+
+| Typed | Suggestions |
+|---|---|
+| `茅台` | 贵州茅台 `sh600519` |
+| `半导体` | 半导体 `BK1036` (plus 半导体材料 `BK1325` and others) |
+| `BK13` | 半导体材料 `BK1325` |
+| `600519` | added directly (an exact code wins, no picking needed) |
+
+Ranking: exact name → name prefix → name substring → code prefix.
+
+The suggestions come from `data/securities.json` in this repository (~11k rows: A-shares, indices, Hong Kong, industry and concept boards). The panel fetches it once from jsDelivr / raw.githubusercontent and caches it for a day. The file is generated:
+
+```bash
+node scripts/build-index.mjs   # needs access to push2.eastmoney.com
+```
+
+Re-run and commit after new listings appear. When the index cannot be fetched (offline, blocked), adding by code and by board name still works.
+
 ## Coverage
 
 The data comes from Eastmoney's public quote endpoint, so what you can add is what it covers:

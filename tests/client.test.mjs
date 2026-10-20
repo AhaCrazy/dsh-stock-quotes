@@ -139,6 +139,26 @@ for (const spelling of SPELLINGS) {
 check('client and host resolvers agree', drift, 0);
 check('client resolver rejects a non-string', clientResolver(42), []);
 
+// --- the search index ranking ---------------------------------------------
+const { searchIndex } = mod.internals;
+const SAMPLE = [
+  ['贵州茅台', 'sh600519'],
+  ['茅台酒业', 'sz000999'],
+  ['半导体', 'BK1036'],
+  ['半导体材料', 'BK1325'],
+  ['阿里巴巴-W', 'hk09988'],
+  ['AAPL', 'usAAPL'],
+];
+check('exact name ranks first', searchIndex(SAMPLE, '半导体')[0], ['半导体', 'BK1036']);
+check('name prefix beats name substring', searchIndex(SAMPLE, '茅台').map(([name]) => name), ['茅台酒业', '贵州茅台']);
+check('code prefix finds the entry', searchIndex(SAMPLE, 'sh600519')[0], ['贵州茅台', 'sh600519']);
+check('board code prefix finds the board', searchIndex(SAMPLE, 'BK13')[0], ['半导体材料', 'BK1325']);
+check('case-insensitive code', searchIndex(SAMPLE, 'usaapl')[0], ['AAPL', 'usAAPL']);
+check('no match yields nothing', searchIndex(SAMPLE, 'zzzz'), []);
+check('blank query yields nothing', searchIndex(SAMPLE, '   '), []);
+check('limit is respected', searchIndex(SAMPLE, '茅台', 1).length, 1);
+check('malformed entries are skipped', searchIndex([null, ['ok', 'sh600000'], []], 'ok').length, 1);
+
 // --- fake Cordis client context -------------------------------------------
 const registered = [];
 const injected = [];
