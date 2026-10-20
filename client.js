@@ -229,11 +229,20 @@ window.__ModuleLoader__.load({
         for (let page = 1; page <= 6; page += 1) {
           const url = 'https://push2.eastmoney.com/api/qt/clist/get'
             + `?pn=${page}&pz=100&po=1&np=1&fltt=2&invt=2&fid=f3&fs=${family}&fields=f12,f14`;
-          const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
-          if (!response.ok) break;
-          const payload = await response.json();
-          const chunk = payload?.data?.diff ?? [];
-          if (chunk.length === 0) break;
+          // A missing page should narrow the index, not fail the whole lookup, so
+          // a page that errors twice is skipped rather than thrown.
+          let chunk = null;
+          for (let attempt = 0; attempt < 2 && chunk === null; attempt += 1) {
+            try {
+              const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
+              if (!response.ok) break;
+              const payload = await response.json();
+              chunk = payload?.data?.diff ?? [];
+            } catch {
+              // Leave the page missing; the loop retries once and then moves on.
+            }
+          }
+          if (chunk === null || chunk.length === 0) break;
           rows.push(...chunk);
         }
       }
