@@ -369,7 +369,8 @@ window.__ModuleLoader__.load({
      * times the payload and nothing else is drawn.
      * @param input - a watchlist spelling.
      * @param signal - optional abort signal.
-     * @returns Close values in chronological order; empty when nothing answers.
+     * @returns `{ t, v }` pairs (t = `HH:MM` in exchange-local Beijing time) in
+     *   chronological order; empty when nothing answers.
      */
     async function fetchTrend(input, signal) {
       for (const secid of candidateSecids(input)) {
@@ -386,8 +387,10 @@ window.__ModuleLoader__.load({
           const points = [];
           for (const row of rows) {
             const parts = String(row).split(',');
+            const stamp = String(parts[0]).trim();
             const value = Number(parts[1]);
-            if (Number.isFinite(value)) points.push(value);
+            if (!Number.isFinite(value)) continue;
+            points.push({ t: stamp.slice(-5), v: value });
           }
           if (points.length >= 2) return points;
         } catch (error) {
@@ -398,31 +401,93 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * SVG path for a sparkline: the series stretched over the box, a flat series
-     * drawn along the midline.
-     * @param points - close values, oldest first.
-     * @param width - box width in user units.
-     * @param height - box height in user units.
+     * Trading sessions in exchange-local minutes-since-midnight, expressed on the
+     * Beijing clock the endpoint stamps every market with. `total` is the length of
+     * a full session, which is what the chart is scaled against: a half-finished day
+     * fills half the box, so the empty part is the part that has not traded yet.
+     */
+    const SESSIONS = {
+      cn: { open: 570, total: 240, breaks: [[690, 780]] },
+      hk: { open: 570, total: 330, breaks: [[720, 780]] },
+      us: { open: 1290, total: 390, breaks: [] },
+    };
+
+    /** `HH:MM` -> minutes since midnight; undefined when the stamp is unreadable. */
+    function minutesOf(clock) {
+      const match = /^(\d{1,2}):(\d{2})$/.exec(String(clock === undefined ? '' : clock).trim());
+      if (match === null) return undefined;
+      return Number(match[1]) * 60 + Number(match[2]);
+    }
+
+    /** Minutes elapsed since the open, lunch break excluded and clamped to the session. */
+    function sessionElapsed(kind, minutes) {
+      const session = SESSIONS[kind];
+      let delta = minutes - session.open;
+      // A session that crosses midnight (US on the Beijing clock) starts negative.
+      if (delta < 0) delta += 1440;
+      for (const [from, to] of session.breaks) {
+        const breakStart = (from - session.open + 1440) % 1440;
+        const breakEnd = breakStart + (to - from);
+        if (delta >= breakEnd) delta -= to - from;
+        else if (delta > breakStart) delta = breakStart;
+      }
+      return Math.max(0, Math.min(delta, session.total));
+    }
+
+    /** Session key for one quote's exchange label. */
+    function sessionKindOf(market) {
+      const label = String(market === undefined || market === null ? '' : market).toUpperCase();
+      if (label === 'HK') return 'hk';
+      if (label === 'NASDAQ' || label === 'NYSE' || label === 'AMEX') return 'us';
+      if (label === 'SH' || label === 'SZ' || label === 'BJ' || label === 'BK') return 'cn';
+      return undefined;
+    }
+
+    /**
+     * SVG path for a sparkline.
+     *
+     * The x axis is the trading session, not the data: a series that stops at 11:30
+     * stops half way across, exactly like a terminal. Only when the session is
+     * unknown does it fall back to stretching the series across the box.
+     *
+     * @param series - `{ t, v }` pairs, oldest first.
+     * @param options - `{ kind, width, height }`; `kind` is a SESSIONS key.
      * @returns Path data, or an empty string when there is nothing to draw.
      */
-    function sparklinePath(points, width = 88, height = 24) {
-      const values = (Array.isArray(points) ? points : [])
-        .filter((value) => typeof value === 'number' && Number.isFinite(value));
-      if (values.length < 2) return '';
-      let min = values[0];
-      let max = values[0];
-      for (const value of values) {
-        if (value < min) min = value;
-        if (value > max) max = value;
+    function sparklinePath(series, options) {
+      const { kind, width = 88, height = 24 } = options || {};
+      const points = [];
+      for (const item of Array.isArray(series) ? series : []) {
+        if (item === null || typeof item !== 'object') continue;
+        if (typeof item.v !== 'number' || !Number.isFinite(item.v)) continue;
+        points.push({ minutes: minutesOf(item.t), value: item.v });
+      }
+      if (points.length < 2) return '';
+
+      const known = kind !== undefined && Object.prototype.hasOwnProperty.call(SESSIONS, kind);
+      const total = known ? SESSIONS[kind].total : 0;
+
+      let min = points[0].value;
+      let max = points[0].value;
+      for (const point of points) {
+        if (point.value < min) min = point.value;
+        if (point.value > max) max = point.value;
       }
       const span = max - min;
-      const stepX = width / (values.length - 1);
       const usable = height - 2;
+      const fallbackStep = width / (points.length - 1);
+
       let path = '';
-      for (let index = 0; index < values.length; index += 1) {
-        const x = (index * stepX).toFixed(2);
-        const y = (span === 0 ? height / 2 : height - ((values[index] - min) / span) * usable - 1).toFixed(2);
-        path += `${index === 0 ? 'M' : 'L'}${x} ${y}`;
+      for (let index = 0; index < points.length; index += 1) {
+        const point = points[index];
+        let x;
+        if (known && point.minutes !== undefined) {
+          x = (sessionElapsed(kind, point.minutes) / total) * width;
+        } else {
+          x = index * fallbackStep;
+        }
+        const y = span === 0 ? height / 2 : height - ((point.value - min) / span) * usable - 1;
+        path += `${index === 0 ? 'M' : 'L'}${x.toFixed(2)} ${y.toFixed(2)}`;
       }
       return path;
     }
@@ -984,7 +1049,9 @@ window.__ModuleLoader__.load({
        */
       const chartCell = (symbol, quote) => {
         const entry = trends[symbol];
-        const path = entry === undefined ? '' : sparklinePath(entry.points);
+        const path = entry === undefined
+          ? ''
+          : sparklinePath(entry.points, { kind: sessionKindOf(quote === undefined ? undefined : quote.market) });
         const change = quote === undefined ? undefined : quote.change;
         const stroke = change === undefined || change === 0
           ? 'var(--dsw-alias-state-idle-primary)'

@@ -161,14 +161,31 @@ check('malformed entries are skipped', searchIndex([null, ['ok', 'sh600000'], []
 
 // --- the sparkline path ----------------------------------------------------
 const { sparklinePath } = mod.internals;
-check('two points draw a line', sparklinePath([10, 20]).startsWith('M'), true);
-check('series stretches over the full width', sparklinePath([10, 20]).endsWith('88.00 1.00'), true);
-check('flat series sits on the midline', sparklinePath([5, 5, 5]).includes(' 12.00'), true);
-check('one point draws nothing', sparklinePath([5]), '');
-check('empty series draws nothing', sparklinePath([]), '');
-check('non-numeric points are ignored', sparklinePath([5, null, 7, 'x', 9]).split('L').length, 3);
-check('upward series ends at the top', sparklinePath([1, 2, 3]).endsWith('88.00 1.00'), true);
-check('downward series ends at the bottom', sparklinePath([3, 2, 1]).endsWith('88.00 23.00'), true);
+const series = (pairs) => pairs.map(([t, v]) => ({ t, v }));
+const tailOf = (path) => path.slice(path.lastIndexOf('L'));
+
+check('a whole A-share session fills the box',
+  tailOf(sparklinePath(series([['09:30', 10], ['15:00', 20]]), { kind: 'cn' })), 'L88.00 1.00');
+check('a session that stops at 11:30 stops half way',
+  tailOf(sparklinePath(series([['09:30', 10], ['11:30', 20]]), { kind: 'cn' })), 'L44.00 1.00');
+check('the lunch break does not advance the line',
+  tailOf(sparklinePath(series([['09:30', 10], ['12:00', 20]]), { kind: 'cn' })), 'L44.00 1.00');
+check('the afternoon resumes from the middle',
+  sparklinePath(series([['13:00', 10], ['14:00', 20]]), { kind: 'cn' }).startsWith('M44.00'), true);
+check('a whole Hong Kong session fills the box',
+  tailOf(sparklinePath(series([['09:30', 10], ['16:00', 20]]), { kind: 'hk' })), 'L88.00 1.00');
+check('a US session crosses midnight without wrapping the axis',
+  tailOf(sparklinePath(series([['21:30', 10], ['04:00', 20]]), { kind: 'us' })), 'L88.00 1.00');
+check('US mid-session lands proportionally',
+  tailOf(sparklinePath(series([['21:30', 10], ['00:30', 20]]), { kind: 'us' })), 'L40.62 1.00');
+check('an unknown session falls back to stretching',
+  tailOf(sparklinePath(series([['09:30', 10], ['11:30', 20]]))), 'L88.00 1.00');
+check('flat series sits on the midline',
+  sparklinePath(series([['09:30', 5], ['10:00', 5]]), { kind: 'cn' }).includes(' 12.00'), true);
+check('one point draws nothing', sparklinePath(series([['09:30', 5]]), { kind: 'cn' }), '');
+check('empty series draws nothing', sparklinePath([], { kind: 'cn' }), '');
+check('non-numeric points are ignored',
+  sparklinePath(series([['09:30', 5], ['09:31', null], ['09:32', 7], ['09:33', 'x'], ['09:34', 9]]), { kind: 'cn' }).split('L').length, 3);
 
 // --- fake Cordis client context -------------------------------------------
 const registered = [];

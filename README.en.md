@@ -56,6 +56,7 @@ Order and membership persist in the browser (`localStorage`, key `dsh-stock-quot
 The **Charts** button in the toolbar toggles a per-row **intraday line** (today's session). The choice is stored in `localStorage` (`chart` in `dsh-stock-quotes/prefs`) and is **on by default**.
 
 - Data comes from Eastmoney's intraday endpoint; A-shares, Hong Kong, US and boards all work (US shows the latest session)
+- **The x axis is the whole session, not the data stretched to fill the box**: A-shares / Beijing / boards are 240 minutes (09:30–11:30, 13:00–15:00), Hong Kong 330 (09:30–12:00, 13:00–16:00), US 390 (21:30–04:00 Beijing time). At 11:30 the line therefore stops half way and the blank right side is the part that has not traded yet; it only fills at the close
 - Refreshed every 60 seconds, deliberately not tied to the 15-second quote tick, so it cannot become a request storm
 - Colour follows the day's move — red up, green down, neutral when flat — matching the number columns
 - With charts off, **no trend request is made**; only the numbers remain
