@@ -46,6 +46,15 @@ window.__ModuleLoader__.load({
       'panel.source': '数据源：东方财富',
       'panel.drag': '拖动排序',
       'panel.chart': '曲线',
+      'focus.high': '最高',
+      'focus.low': '最低',
+      'focus.preClose': '昨收',
+      'focus.avg': '均价',
+      'focus.vol': '量',
+      'focus.days1': '1日',
+      'focus.days5': '5日',
+      'focus.close': '关闭',
+      'focus.hint': '在图上移动鼠标查看具体数值',
       'panel.copied': '已复制代码',
       'panel.copyFailed': '复制失败',
       'menu.title': '关注项操作',
@@ -112,6 +121,17 @@ window.__ModuleLoader__.load({
 .dsq-chart-on .dsq-row{grid-template-columns:28px 20px minmax(140px,1.5fr) minmax(88px,1.1fr) repeat(4,minmax(72px,.9fr)) repeat(3,minmax(64px,.8fr))}
 .dsq-chart{display:flex;align-items:center;justify-content:center;min-width:0}
 .dsq-chart svg{display:block;width:100%;height:24px}
+.dsq-btn[aria-pressed=true]{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}
+.dsq-focus{position:relative;margin:0 0 14px;padding:10px 12px 8px;border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-alias-bg-layer-1)}
+.dsq-focus-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px;font-size:12px;line-height:18px}
+.dsq-focus-title{font-size:13px;color:var(--dsw-alias-label-primary)}
+.dsq-focus-code{margin-left:6px;color:var(--dsw-alias-label-secondary);font-size:12px;font-variant-numeric:tabular-nums}
+.dsq-focus-price{font-variant-numeric:tabular-nums}
+.dsq-focus-extra{color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}
+.dsq-focus svg{display:block;width:100%;height:auto;cursor:crosshair}
+.dsq-focus-empty{color:var(--dsw-alias-label-secondary);font-size:12px;line-height:32px}
+.dsq-focus-cursor{min-height:18px;margin-top:2px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px;font-variant-numeric:tabular-nums}
+.dsq-row.dsq-focused{background:var(--dsw-alias-bg-layer-2);box-shadow:inset 2px 0 0 var(--dsw-alias-brand-primary)}
 .dsq-row:first-child{border-top:none}
 .dsq-row:not(.dsq-headrow):hover{background:var(--dsw-alias-bg-layer-2)}
 .dsq-headrow{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px}
@@ -365,18 +385,19 @@ window.__ModuleLoader__.load({
 
     /**
      * Intraday close series for one entry, trying each candidate market the
-     * spelling allows. Only `time,close` is requested: the full row would be three
-     * times the payload and nothing else is drawn.
+     * spelling allows. `close` is what the sparkline draws; `average` and `volume`
+     * are what the focus chart reads out.
      * @param input - a watchlist spelling.
      * @param signal - optional abort signal.
-     * @returns `{ t, v }` pairs (t = `HH:MM` in exchange-local Beijing time) in
-     *   chronological order; empty when nothing answers.
+     * @param days - 1 for today, 5 for the last five sessions.
+     * @returns `{ day, t, v, vol, avg }` rows in chronological order; empty when
+     *   nothing answers.
      */
-    async function fetchTrend(input, signal) {
+    async function fetchTrend(input, signal, days = 1) {
       for (const secid of candidateSecids(input)) {
         try {
           const url = `${TREND_ENDPOINT}?secid=${encodeURIComponent(secid)}`
-            + `&fields1=f1,f2&fields2=f51,f53&ndays=1&iscr=0&iscca=0&_=${Date.now()}`;
+            + `&fields1=f1,f2&fields2=f51,f53,f56,f58&ndays=${days}&iscr=0&iscca=0&_=${Date.now()}`;
           const response = await fetch(url, { signal, cache: 'no-store', headers: { accept: 'application/json' } });
           if (!response.ok) continue;
           const payload = await response.json();
@@ -390,7 +411,15 @@ window.__ModuleLoader__.load({
             const stamp = String(parts[0]).trim();
             const value = Number(parts[1]);
             if (!Number.isFinite(value)) continue;
-            points.push({ t: stamp.slice(-5), v: value });
+            const volume = Number(parts[2]);
+            const average = Number(parts[3]);
+            points.push({
+              day: stamp.slice(0, 10),
+              t: stamp.slice(-5),
+              v: value,
+              vol: Number.isFinite(volume) ? volume : undefined,
+              avg: Number.isFinite(average) ? average : undefined,
+            });
           }
           if (points.length >= 2) return points;
         } catch (error) {
@@ -490,6 +519,199 @@ window.__ModuleLoader__.load({
         path += `${index === 0 ? 'M' : 'L'}${x.toFixed(2)} ${y.toFixed(2)}`;
       }
       return path;
+    }
+
+    /** Viewbox the focus chart draws in, with the axis gutters reserved. */
+    const FOCUS_BOX = { width: 1000, height: 210, left: 12, right: 76, top: 14, bottom: 30 };
+    const FOCUS_PLOT = {
+      width: FOCUS_BOX.width - FOCUS_BOX.left - FOCUS_BOX.right,
+      height: FOCUS_BOX.height - FOCUS_BOX.top - FOCUS_BOX.bottom,
+    };
+
+    /** Clock labels per session as `[minutes elapsed, label]`. */
+    const SESSION_TICKS = {
+      cn: [[0, '09:30'], [60, '10:30'], [120, '11:30/13:00'], [180, '14:00'], [240, '15:00']],
+      hk: [[0, '09:30'], [90, '11:00'], [150, '12:00/13:00'], [240, '14:30'], [330, '16:00']],
+      us: [[0, '21:30'], [150, '00:00'], [390, '04:00']],
+    };
+
+    /** Axis step rounded to the nearest of 1/2/2.5/5 × 10^n, so ticks stay readable. */
+    function niceStep(span, count) {
+      if (!(span > 0) || !(count > 0)) return 1;
+      const rough = span / count;
+      const magnitude = Math.pow(10, Math.floor(Math.log10(rough)));
+      const normalised = rough / magnitude;
+      const factor = normalised <= 1.5 ? 1 : normalised <= 2.25 ? 2 : normalised <= 3.5 ? 2.5 : normalised <= 7.5 ? 5 : 10;
+      return factor * magnitude;
+    }
+
+    /**
+     * Vertical axis ticks inside a plot of the given height.
+     * @returns `{ value, y }` rows, top-down.
+     */
+    function yAxisTicks(min, max, height, count = 4) {
+      if (!(max > min) || !(height > 0)) return [];
+      const step = niceStep(max - min, count);
+      const ticks = [];
+      const first = Math.ceil(min / step) * step;
+      for (let value = first; value <= max + step * 1e-9; value += step) {
+        const y = height - ((value - min) / (max - min)) * height;
+        ticks.push({ value, y });
+      }
+      return ticks;
+    }
+
+    /**
+     * Horizontal axis labels: the session clock for one day, day starts for five.
+     * @returns `{ x, label }` rows in plot units.
+     */
+    function xAxisTicks(points, kind, mode, width) {
+      if (!Array.isArray(points) || points.length < 2) return [];
+      if (mode === 1) {
+        const total = kind !== undefined && SESSIONS[kind] !== undefined ? SESSIONS[kind].total : undefined;
+        const ticks = SESSION_TICKS[kind];
+        if (total !== undefined && ticks !== undefined) {
+          return ticks.map(([offset, label]) => ({ x: (offset / total) * width, label }));
+        }
+        const last = points.length - 1;
+        return [
+          { x: 0, label: points[0].t },
+          { x: width, label: points[last].t },
+        ];
+      }
+      const starts = [];
+      for (let index = 0; index < points.length; index += 1) {
+        const day = points[index].day;
+        if (starts.length === 0 || starts[starts.length - 1].day !== day) starts.push({ day, index });
+      }
+      return starts.map(({ day, index }) => ({
+        x: (index / (points.length - 1)) * width,
+        label: String(day === undefined ? '' : day).slice(5),
+      }));
+    }
+
+    /**
+     * Index of the point closest to a `0..1` fraction of the plot width — the
+     * pointer's position, mapped back through the same x rule the path uses.
+     */
+    function nearestIndex(points, fraction, kind, mode) {
+      if (!Array.isArray(points) || points.length === 0) return -1;
+      const clamped = Math.max(0, Math.min(1, Number.isFinite(fraction) ? fraction : 0));
+      const total = mode === 1 && kind !== undefined && SESSIONS[kind] !== undefined
+        ? SESSIONS[kind].total
+        : undefined;
+      if (total === undefined) return Math.round(clamped * (points.length - 1));
+      const target = clamped * total;
+      let best = -1;
+      let bestDelta = Infinity;
+      for (let index = 0; index < points.length; index += 1) {
+        const minutes = minutesOf(points[index].t);
+        if (minutes === undefined) continue;
+        const delta = Math.abs(sessionElapsed(kind, minutes) - target);
+        if (delta < bestDelta) {
+          bestDelta = delta;
+          best = index;
+        }
+      }
+      return best;
+    }
+
+    /** Hands → `1.20万手` style, for the cursor readout. */
+    function formatLots(value) {
+      if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
+      if (value >= 1e8) return `${(value / 1e8).toFixed(2)}亿手`;
+      if (value >= 1e4) return `${(value / 1e4).toFixed(2)}万手`;
+      return `${value.toFixed(0)}手`;
+    }
+
+    /**
+     * Geometry for the focus chart: the plotted points, both paths, the axis ticks
+     * and the scale functions the crosshair needs.
+     * @param points - `{ t, day, v, avg }` rows.
+     * @param options - `{ kind, mode, preClose }`.
+     * @returns A plain description, or null when there is nothing to draw.
+     */
+    function focusGeometry(points, options) {
+      const { kind, mode = 1, preClose } = options || {};
+      const list = [];
+      for (const point of Array.isArray(points) ? points : []) {
+        if (point === null || typeof point !== 'object') continue;
+        if (typeof point.v !== 'number' || !Number.isFinite(point.v)) continue;
+        list.push(point);
+      }
+      if (list.length < 2) return null;
+
+      const total = mode === 1 && kind !== undefined && SESSIONS[kind] !== undefined
+        ? SESSIONS[kind].total
+        : undefined;
+      const xs = list.map((point, index) => {
+        if (total !== undefined) {
+          const minutes = minutesOf(point.t);
+          if (minutes !== undefined) return (sessionElapsed(kind, minutes) / total) * FOCUS_PLOT.width;
+        }
+        return (index / (list.length - 1)) * FOCUS_PLOT.width;
+      });
+
+      let min = Infinity;
+      let max = -Infinity;
+      for (const point of list) {
+        if (point.v < min) min = point.v;
+        if (point.v > max) max = point.v;
+        if (typeof point.avg === 'number' && Number.isFinite(point.avg)) {
+          if (point.avg < min) min = point.avg;
+          if (point.avg > max) max = point.avg;
+        }
+      }
+      if (typeof preClose === 'number' && Number.isFinite(preClose)) {
+        min = Math.min(min, preClose);
+        max = Math.max(max, preClose);
+      }
+      const span = max - min;
+      const pad = span === 0 ? Math.max(Math.abs(max) * 0.01, 0.01) : span * 0.08;
+      min -= pad;
+      max += pad;
+
+      const yOf = (value) => FOCUS_PLOT.height - ((value - min) / (max - min)) * FOCUS_PLOT.height;
+      let d = '';
+      for (let index = 0; index < list.length; index += 1) {
+        d += `${index === 0 ? 'M' : 'L'}${xs[index].toFixed(2)} ${yOf(list[index].v).toFixed(2)}`;
+      }
+      const area = `${d}L${xs[xs.length - 1].toFixed(2)} ${FOCUS_PLOT.height}L${xs[0].toFixed(2)} ${FOCUS_PLOT.height}Z`;
+
+      let avg = '';
+      if (mode === 1) {
+        let started = false;
+        for (let index = 0; index < list.length; index += 1) {
+          const value = list[index].avg;
+          if (typeof value !== 'number' || !Number.isFinite(value)) continue;
+          avg += `${started ? 'L' : 'M'}${xs[index].toFixed(2)} ${yOf(value).toFixed(2)}`;
+          started = true;
+        }
+        if (!started) avg = '';
+      }
+
+      let high = list[0];
+      let low = list[0];
+      for (const point of list) {
+        if (point.v > high.v) high = point;
+        if (point.v < low.v) low = point;
+      }
+
+      return {
+        points: list,
+        xs,
+        d,
+        area,
+        avg,
+        min,
+        max,
+        high,
+        low,
+        yOf,
+        preCloseY: typeof preClose === 'number' && Number.isFinite(preClose) ? yOf(preClose) : undefined,
+        yTicks: yAxisTicks(min, max, FOCUS_PLOT.height),
+        xTicks: xAxisTicks(list, kind, mode, FOCUS_PLOT.width),
+      };
     }
 
     function toNumber(value) {
@@ -790,6 +1012,11 @@ window.__ModuleLoader__.load({
       const [matches, setMatches] = React.useState([]);
       const [chart, setChart] = React.useState(() => readPrefs().chart);
       const [trends, setTrends] = React.useState({});
+      const [focus, setFocus] = React.useState(null);
+      const [focusDays, setFocusDays] = React.useState(1);
+      const [focusSeries, setFocusSeries] = React.useState({});
+      const [hover, setHover] = React.useState(null);
+      const focusRef = React.useRef({});
       const symbolsRef = React.useRef(symbols);
       symbolsRef.current = symbols;
       const trendsRef = React.useRef({});
@@ -874,6 +1101,36 @@ window.__ModuleLoader__.load({
           window.clearInterval(id);
         };
       }, [chart, symbols]);
+
+      // The focus chart: one series per (symbol, day count), fetched on demand and
+      // refreshed on the same slow cadence as the sparklines.
+      React.useEffect(() => {
+        if (focus === null) return undefined;
+        const key = `${focus}|${focusDays}`;
+        let cancelled = false;
+        const load = async () => {
+          const cached = focusRef.current[key];
+          if (cached !== undefined && Date.now() - cached.at < CHART_TTL) return;
+          try {
+            const points = await fetchTrend(focus, undefined, focusDays);
+            if (cancelled) return;
+            const next = { ...focusRef.current, [key]: { at: Date.now(), points } };
+            focusRef.current = next;
+            setFocusSeries(next);
+          } catch {
+            /* keep whatever is already on screen */
+          }
+        };
+        void load();
+        const id = window.setInterval(() => {
+          if (document.visibilityState === 'hidden') return;
+          void load();
+        }, CHART_TTL);
+        return () => {
+          cancelled = true;
+          window.clearInterval(id);
+        };
+      }, [focus, focusDays]);
 
       // Close the context menu on anything that would leave it stranded.
       React.useEffect(() => {
@@ -1041,6 +1298,136 @@ window.__ModuleLoader__.load({
         setMenu({ symbol, x: event.clientX, y: event.clientY });
       };
 
+      /**
+       * The focus chart: a full-width intraday line for the most recently clicked
+       * row, with an axis, a previous-close baseline, the day's average and a
+       * crosshair that reads out the value under the pointer.
+       */
+      const buildFocusPanel = () => {
+        const cached = focusSeries[`${focus}|${focusDays}`];
+        const points = cached === undefined ? [] : cached.points;
+        const quote = quoteBySymbol.get(focus);
+        const kind = sessionKindOf(quote === undefined ? undefined : quote.market);
+        const preClose = quote === undefined ? undefined : quote.preClose;
+        const hasPreClose = typeof preClose === 'number' && Number.isFinite(preClose);
+        const geometry = focusGeometry(points, { kind, mode: focusDays, preClose });
+        const stroke = quote === undefined || quote.change === undefined || quote.change === 0
+          ? 'var(--dsw-alias-state-idle-primary)'
+          : quote.change > 0
+            ? 'var(--dsw-alias-state-error-primary)'
+            : 'var(--dsw-alias-state-success-primary)';
+        const cursor = geometry === null || hover === null ? undefined : geometry.points[hover];
+        const axis = { fill: 'var(--dsw-alias-label-secondary)', fontSize: '11' };
+        const grid = 'var(--dsw-alias-border-l1)';
+
+        return h('div', { className: 'dsq-focus', key: 'focus' },
+          h('div', { className: 'dsq-focus-head' },
+            h('span', { className: 'dsq-focus-title' },
+              quote === undefined ? focus : (quote.name || quote.code),
+              h('span', { className: 'dsq-focus-code' },
+                `${focus}${quote === undefined ? '' : ` · ${quote.market}`}`)),
+            quote === undefined
+              ? null
+              : h('span', { className: `dsq-focus-price ${quote === undefined ? '' : `dsq-${toneOf(quote.change)}`}` },
+                `${fmt(quote.price)} ${fmtSigned(quote.change)} (${fmtSigned(quote.changePct)}%)`),
+            geometry === null
+              ? null
+              : h('span', { className: 'dsq-focus-extra' },
+                `${t('focus.high')} ${fmt(geometry.high.v)} · ${t('focus.low')} ${fmt(geometry.low.v)}`),
+            h('span', { className: 'dsq-grow' }),
+            h('button', {
+              type: 'button',
+              className: 'dsq-btn',
+              'aria-pressed': focusDays === 1,
+              onClick: () => { setFocusDays(1); setHover(null); },
+            }, t('focus.days1')),
+            h('button', {
+              type: 'button',
+              className: 'dsq-btn',
+              'aria-pressed': focusDays === 5,
+              onClick: () => { setFocusDays(5); setHover(null); },
+            }, t('focus.days5')),
+            h('button', {
+              type: 'button',
+              className: 'dsq-btn',
+              'aria-label': t('focus.close'),
+              onClick: () => { setFocus(null); setHover(null); },
+            }, '\u00d7')),
+          geometry === null
+            ? h('div', { className: 'dsq-focus-empty' }, t('panel.loading'))
+            : h('svg', {
+              viewBox: `0 0 ${FOCUS_BOX.width} ${FOCUS_BOX.height}`,
+              role: 'img',
+              'aria-label': t('panel.chart'),
+              onPointerMove: (event) => {
+                const rect = event.currentTarget.getBoundingClientRect();
+                if (rect.width <= 0) return;
+                const inBox = ((event.clientX - rect.left) / rect.width) * FOCUS_BOX.width;
+                setHover(nearestIndex(points, (inBox - FOCUS_BOX.left) / FOCUS_PLOT.width, kind, focusDays));
+              },
+              onPointerLeave: () => setHover(null),
+            },
+            h('g', { transform: `translate(${FOCUS_BOX.left} ${FOCUS_BOX.top})` },
+              geometry.yTicks.map((tick) => h('g', { key: `gy${tick.value}` },
+                h('line', { x1: 0, x2: FOCUS_PLOT.width, y1: tick.y, y2: tick.y, stroke: grid, strokeWidth: '1' }),
+                h('text', { x: FOCUS_PLOT.width + 8, y: tick.y + 4, ...axis }, fmt(tick.value)))),
+              geometry.xTicks.map((tick, index) => h('g', { key: `gx${index}` },
+                h('line', { x1: tick.x, x2: tick.x, y1: 0, y2: FOCUS_PLOT.height, stroke: grid, strokeWidth: '1' }),
+                h('text', { x: tick.x, y: FOCUS_PLOT.height + 16, textAnchor: 'middle', ...axis }, tick.label))),
+              geometry.preCloseY === undefined
+                ? null
+                : h('line', {
+                  x1: 0,
+                  x2: FOCUS_PLOT.width,
+                  y1: geometry.preCloseY,
+                  y2: geometry.preCloseY,
+                  stroke: 'var(--dsw-alias-label-secondary)',
+                  strokeWidth: '1',
+                  strokeDasharray: '4 3',
+                }),
+              h('path', { d: geometry.area, fill: stroke, fillOpacity: '0.1', stroke: 'none' }),
+              geometry.avg === ''
+                ? null
+                : h('path', {
+                  d: geometry.avg,
+                  fill: 'none',
+                  stroke: 'var(--dsw-alias-label-secondary)',
+                  strokeWidth: '1',
+                  strokeDasharray: '3 3',
+                }),
+              h('path', {
+                d: geometry.d,
+                fill: 'none',
+                stroke,
+                strokeWidth: '1.6',
+                strokeLinejoin: 'round',
+                strokeLinecap: 'round',
+              }),
+              cursor === undefined
+                ? null
+                : h('g', null,
+                  h('line', {
+                    x1: geometry.xs[hover],
+                    x2: geometry.xs[hover],
+                    y1: 0,
+                    y2: FOCUS_PLOT.height,
+                    stroke: 'var(--dsw-alias-label-secondary)',
+                    strokeWidth: '1',
+                    strokeDasharray: '3 3',
+                  }),
+                  h('circle', { cx: geometry.xs[hover], cy: geometry.yOf(cursor.v), r: '3', fill: stroke })))),
+          h('div', { className: 'dsq-focus-cursor' },
+            cursor === undefined
+              ? t('focus.hint')
+              : [
+                focusDays === 1 ? cursor.t : `${cursor.day} ${cursor.t}`,
+                fmt(cursor.v),
+                hasPreClose ? `(${fmtSigned(((cursor.v - preClose) / preClose) * 100)}%)` : '',
+                `${t('focus.avg')} ${fmt(cursor.avg)}`,
+                `${t('focus.vol')} ${formatLots(cursor.vol)}`,
+              ].filter((part) => part !== '').join('  ·  ')));
+      };
+
       const quoteBySymbol = new Map(view.quotes.map((quote) => [quote.symbol, quote]));
 
       /**
@@ -1089,6 +1476,7 @@ window.__ModuleLoader__.load({
           isSelected ? 'dsq-selected' : '',
           isDropTarget ? (dropAt.after ? 'dsq-drop-after' : 'dsq-drop-before') : '',
           drag === symbol ? 'dsq-dragging' : '',
+          focus === symbol ? 'dsq-focused' : '',
         ].filter((part) => part !== '').join(' ');
 
         const numeric = quote === undefined
@@ -1125,6 +1513,12 @@ window.__ModuleLoader__.load({
             if (drag !== null) setSymbols((previous) => moveNextTo(previous, [drag], symbol, after));
             setDrag(null);
             setDropAt(null);
+          },
+          onClick: (event) => {
+            const target = event === null || event === undefined ? null : event.target;
+            if (target !== null && typeof target.closest === 'function' && target.closest('input,button,a') !== null) return;
+            setHover(null);
+            setFocus((previous) => (previous === symbol ? null : symbol));
           },
         },
         h('div', { className: 'dsq-pick', role: 'cell' },
@@ -1327,6 +1721,7 @@ window.__ModuleLoader__.load({
                     className: 'dsq-btn',
                     onClick: clearSelection,
                   }, t('batch.clear'))),
+              focus === null ? null : buildFocusPanel(),
               symbols.length === 0
                 ? h('div', { className: 'dsq-empty' }, t('panel.empty'))
                 : h('div', { className: chart ? 'dsq-tablewrap dsq-chart-on' : 'dsq-tablewrap', role: 'table' },
@@ -1455,6 +1850,15 @@ window.__ModuleLoader__.load({
           'panel.source': FALLBACK_TEXT['panel.source'],
           'panel.drag': FALLBACK_TEXT['panel.drag'],
           'panel.chart': FALLBACK_TEXT['panel.chart'],
+          'focus.high': FALLBACK_TEXT['focus.high'],
+          'focus.low': FALLBACK_TEXT['focus.low'],
+          'focus.preClose': FALLBACK_TEXT['focus.preClose'],
+          'focus.avg': FALLBACK_TEXT['focus.avg'],
+          'focus.vol': FALLBACK_TEXT['focus.vol'],
+          'focus.days1': FALLBACK_TEXT['focus.days1'],
+          'focus.days5': FALLBACK_TEXT['focus.days5'],
+          'focus.close': FALLBACK_TEXT['focus.close'],
+          'focus.hint': FALLBACK_TEXT['focus.hint'],
           'panel.copied': FALLBACK_TEXT['panel.copied'],
           'panel.copyFailed': FALLBACK_TEXT['panel.copyFailed'],
           'menu.title': FALLBACK_TEXT['menu.title'],
@@ -1510,6 +1914,15 @@ window.__ModuleLoader__.load({
           'panel.source': 'Source: Eastmoney',
           'panel.drag': 'Drag to reorder',
           'panel.chart': 'Charts',
+          'focus.high': 'High',
+          'focus.low': 'Low',
+          'focus.preClose': 'Prev close',
+          'focus.avg': 'Avg',
+          'focus.vol': 'Vol',
+          'focus.days1': '1D',
+          'focus.days5': '5D',
+          'focus.close': 'Close',
+          'focus.hint': 'Move over the chart to read values',
           'panel.copied': 'Symbols copied',
           'panel.copyFailed': 'Copy failed',
           'menu.title': 'Watchlist actions',
@@ -1605,7 +2018,19 @@ window.__ModuleLoader__.load({
       inject: ['slots', 'locale'],
       apply,
       /** Pure helpers, exported so the smoke test can exercise them. */
-      internals: { reorderList, moveNextTo, candidateSecids, searchIndex, sparklinePath, fetchTrend },
+      internals: {
+        reorderList,
+        moveNextTo,
+        candidateSecids,
+        searchIndex,
+        sparklinePath,
+        fetchTrend,
+        focusGeometry,
+        nearestIndex,
+        xAxisTicks,
+        yAxisTicks,
+        formatLots,
+      },
     };
   },
 });

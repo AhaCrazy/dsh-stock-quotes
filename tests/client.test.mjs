@@ -187,6 +187,45 @@ check('empty series draws nothing', sparklinePath([], { kind: 'cn' }), '');
 check('non-numeric points are ignored',
   sparklinePath(series([['09:30', 5], ['09:31', null], ['09:32', 7], ['09:33', 'x'], ['09:34', 9]]), { kind: 'cn' }).split('L').length, 3);
 
+// --- the focus chart -------------------------------------------------------
+const { focusGeometry, nearestIndex, xAxisTicks, formatLots } = mod.internals;
+const CN_DAY = [
+  { day: '2026-10-21', t: '09:30', v: 100, avg: 100, vol: 10 },
+  { day: '2026-10-21', t: '10:30', v: 120, avg: 110, vol: 20 },
+  { day: '2026-10-21', t: '11:30', v: 110, avg: 111, vol: 15 },
+];
+const geo = focusGeometry(CN_DAY, { kind: 'cn', mode: 1, preClose: 105 });
+
+check('geometry builds a path', geo.d.startsWith('M'), true);
+check('geometry builds a closed area', geo.area.endsWith('Z'), true);
+check('high and low are identified', [geo.high.v, geo.low.v], [120, 100]);
+check('the previous close is inside the plotted range', geo.min < 105 && geo.max > 105, true);
+check('the average line is drawn for one day', geo.avg.startsWith('M'), true);
+check('five-day mode drops the average line', focusGeometry(CN_DAY, { kind: 'cn', mode: 5 }).avg, '');
+check('an unknown session still builds from the data', focusGeometry(CN_DAY, {}).d.startsWith('M'), true);
+check('a flat series does not divide by zero', focusGeometry(series([['09:30', 5], ['10:00', 5]]), { kind: 'cn' }).d.startsWith('M'), true);
+check('fewer than two points yields nothing', focusGeometry(CN_DAY.slice(0, 1), { kind: 'cn' }), null);
+check('y ticks stay inside the plot box', geo.yTicks.every((tick) => tick.y >= 0 && tick.y <= 166), true);
+check('y ticks ascend by value', geo.yTicks[0].value < geo.yTicks[geo.yTicks.length - 1].value, true);
+check('session ticks for A shares', xAxisTicks(CN_DAY, 'cn', 1, 100).map((tick) => tick.label),
+  ['09:30', '10:30', '11:30/13:00', '14:00', '15:00']);
+check('the last session tick sits at the right edge', xAxisTicks(CN_DAY, 'cn', 1, 100)[4].x, 100);
+const FIVE_DAYS = [
+  { day: '2026-10-20', t: '09:30', v: 1 },
+  { day: '2026-10-20', t: '15:00', v: 2 },
+  { day: '2026-10-21', t: '09:30', v: 3 },
+  { day: '2026-10-21', t: '15:00', v: 4 },
+];
+check('multi-day ticks mark each day start', xAxisTicks(FIVE_DAYS, 'cn', 5, 300).map((tick) => tick.label), ['10-20', '10-21']);
+check('nearest index at the open', nearestIndex(CN_DAY, 0, 'cn', 1), 0);
+check('nearest index at half a session', nearestIndex(CN_DAY, 0.5, 'cn', 1), 2);
+check('nearest index clamps past the close', nearestIndex(CN_DAY, 1, 'cn', 1), 2);
+check('nearest index for multi-day walks the series', nearestIndex(FIVE_DAYS, 0.5, 'cn', 5), 2);
+check('an empty series has no nearest index', nearestIndex([], 0.5, 'cn', 1), -1);
+check('lots are humanised', formatLots(123456), '12.35万手');
+check('small lots stay raw', formatLots(43), '43手');
+check('missing lots render a dash', formatLots(undefined), '—');
+
 // --- fake Cordis client context -------------------------------------------
 const registered = [];
 const injected = [];
@@ -290,6 +329,7 @@ check('grip is draggable', firstChildren[1].children[0].props.draggable, 'true')
 check('row reacts to right click', typeof firstRow.props.onContextMenu, 'function');
 check('row accepts drops', typeof firstRow.props.onDrop, 'function');
 check('row tracks drag over', typeof firstRow.props.onDragOver, 'function');
+check('row can be focused by clicking', typeof firstRow.props.onClick, 'function');
 
 // Header: select-all checkbox plus the drag column, then the column labels.
 const headRow = collect(pageTree).find((node) => node.props && node.props.className === 'dsq-row dsq-headrow');

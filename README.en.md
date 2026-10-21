@@ -62,6 +62,17 @@ The **Charts** button in the toolbar toggles a per-row **intraday line** (today'
 - With charts off, **no trend request is made**; only the numbers remain
 - A row whose series has not arrived yet keeps an empty cell, so columns never shift
 
+### Focus chart (click a row)
+
+The sparkline only shows shape. **Click any row** and a full-width chart for that symbol opens above the table; click the row again or press × to close it.
+
+- Y axis ticks on both the scale and the grid, plus a dashed **previous-close** line
+- The time axis follows the instrument's session: A-shares `09:30 / 10:30 / 11:30·13:00 / 14:00 / 15:00`; Hong Kong and US label their own sessions
+- **Hover crosshair**: the vertical line and dot snap to the nearest minute and the line underneath reads `time · price · ±% vs previous close · average · volume`
+- The header shows the name, the current price and the session's **high / low**
+- **1D / 5D** switch: five-day mode splits by trading day and labels dates instead of the clock
+- One-day mode also draws the **average price line** (dashed)
+
 ## Display name
 
 The sidebar label, the panel heading and the notification text all use one configurable name, defaulting to `数据`. Change it in **Settings → Plugins → "数据面板" → Panel settings**. Leave the field empty to get the default back. Values are whitespace-collapsed and capped at 24 characters; they live in `localStorage` under `dsh-stock-quotes/prefs`.
