@@ -472,6 +472,43 @@ window.__ModuleLoader__.load({
       return undefined;
     }
 
+    /** Min/max of the finite values in a series. */
+    function seriesBounds(series) {
+      let min = Infinity;
+      let max = -Infinity;
+      for (const item of Array.isArray(series) ? series : []) {
+        if (item === null || typeof item !== 'object') continue;
+        if (typeof item.v !== 'number' || !Number.isFinite(item.v)) continue;
+        if (item.v < min) min = item.v;
+        if (item.v > max) max = item.v;
+      }
+      return Number.isFinite(min) && Number.isFinite(max) ? { min, max } : null;
+    }
+
+    /** Vertical position of one value in a box of the given height. */
+    function seriesY(value, min, max, height) {
+      const span = max - min;
+      if (span === 0) return height / 2;
+      return height - ((value - min) / span) * (height - 2) - 1;
+    }
+
+    /**
+     * Horizontal position of one series index in the sparkline's box, following the
+     * same session rule the path uses.
+     */
+    function seriesXAt(series, index, kind, width = 88) {
+      const list = Array.isArray(series) ? series : [];
+      if (list.length < 2) return 0;
+      const known = kind !== undefined && Object.prototype.hasOwnProperty.call(SESSIONS, kind);
+      if (known) {
+        const minutes = minutesOf(list[index] === undefined ? undefined : list[index].t);
+        if (minutes !== undefined) {
+          return (sessionElapsed(kind, minutes) / SESSIONS[kind].total) * width;
+        }
+      }
+      return (index / (list.length - 1)) * width;
+    }
+
     /**
      * SVG path for a sparkline.
      *
@@ -489,33 +526,15 @@ window.__ModuleLoader__.load({
       for (const item of Array.isArray(series) ? series : []) {
         if (item === null || typeof item !== 'object') continue;
         if (typeof item.v !== 'number' || !Number.isFinite(item.v)) continue;
-        points.push({ minutes: minutesOf(item.t), value: item.v });
+        points.push(item);
       }
-      if (points.length < 2) return '';
-
-      const known = kind !== undefined && Object.prototype.hasOwnProperty.call(SESSIONS, kind);
-      const total = known ? SESSIONS[kind].total : 0;
-
-      let min = points[0].value;
-      let max = points[0].value;
-      for (const point of points) {
-        if (point.value < min) min = point.value;
-        if (point.value > max) max = point.value;
-      }
-      const span = max - min;
-      const usable = height - 2;
-      const fallbackStep = width / (points.length - 1);
+      const bounds = seriesBounds(points);
+      if (points.length < 2 || bounds === null) return '';
 
       let path = '';
       for (let index = 0; index < points.length; index += 1) {
-        const point = points[index];
-        let x;
-        if (known && point.minutes !== undefined) {
-          x = (sessionElapsed(kind, point.minutes) / total) * width;
-        } else {
-          x = index * fallbackStep;
-        }
-        const y = span === 0 ? height / 2 : height - ((point.value - min) / span) * usable - 1;
+        const x = seriesXAt(points, index, kind, width);
+        const y = seriesY(points[index].v, bounds.min, bounds.max, height);
         path += `${index === 0 ? 'M' : 'L'}${x.toFixed(2)} ${y.toFixed(2)}`;
       }
       return path;
@@ -1016,6 +1035,7 @@ window.__ModuleLoader__.load({
       const [focusDays, setFocusDays] = React.useState(1);
       const [focusSeries, setFocusSeries] = React.useState({});
       const [hover, setHover] = React.useState(null);
+      const [rowHover, setRowHover] = React.useState(null);
       const focusRef = React.useRef({});
       const symbolsRef = React.useRef(symbols);
       symbolsRef.current = symbols;
@@ -1436,38 +1456,85 @@ window.__ModuleLoader__.load({
        */
       const chartCell = (symbol, quote) => {
         const entry = trends[symbol];
-        const path = entry === undefined
-          ? ''
-          : sparklinePath(entry.points, { kind: sessionKindOf(quote === undefined ? undefined : quote.market) });
+        const points = entry === undefined ? [] : entry.points;
+        const kind = sessionKindOf(quote === undefined ? undefined : quote.market);
+        const path = points.length < 2 ? '' : sparklinePath(points, { kind });
         const change = quote === undefined ? undefined : quote.change;
         const stroke = change === undefined || change === 0
           ? 'var(--dsw-alias-state-idle-primary)'
           : change > 0
             ? 'var(--dsw-alias-state-error-primary)'
             : 'var(--dsw-alias-state-success-primary)';
+        // Hovering the sparkline scrubs the row's numbers to the point under the
+        // pointer, with a marker in the line itself.
+        const active = rowHover !== null && rowHover.symbol === symbol && points[rowHover.index] !== undefined;
+        let marker = null;
+        if (active) {
+          const bounds = seriesBounds(points);
+          if (bounds !== null) {
+            marker = {
+              x: seriesXAt(points, rowHover.index, kind),
+              y: seriesY(points[rowHover.index].v, bounds.min, bounds.max, 24),
+            };
+          }
+        }
         // The cell is always present while the column is on, even before the series
         // lands: a missing cell would shift every later column in that row.
-        return h('div', { className: 'dsq-chart', role: 'cell' },
-          path === '' ? null : h('svg', {
-            viewBox: '0 0 88 24',
-            preserveAspectRatio: 'none',
-            'aria-hidden': true,
-            focusable: 'false',
+        return h('div', {
+          className: 'dsq-chart',
+          role: 'cell',
+          onPointerMove: (event) => {
+            if (points.length < 2) return;
+            const rect = event.currentTarget.getBoundingClientRect();
+            if (rect.width <= 0) return;
+            const index = nearestIndex(points, (event.clientX - rect.left) / rect.width, kind, 1);
+            if (index >= 0) setRowHover({ symbol, index });
           },
-          h('path', {
-            d: path,
-            fill: 'none',
-            stroke,
-            strokeWidth: '1.2',
-            strokeLinecap: 'round',
-            strokeLinejoin: 'round',
+          onPointerLeave: () => setRowHover((previous) => (previous !== null && previous.symbol === symbol ? null : previous)),
+        },
+        path === '' ? null : h('svg', {
+          viewBox: '0 0 88 24',
+          preserveAspectRatio: 'none',
+          'aria-hidden': true,
+          focusable: 'false',
+        },
+        h('path', {
+          d: path,
+          fill: 'none',
+          stroke,
+          strokeWidth: '1.2',
+          strokeLinecap: 'round',
+          strokeLinejoin: 'round',
+          vectorEffect: 'non-scaling-stroke',
+        }),
+        marker === null ? null : h('g', null,
+          h('line', {
+            x1: marker.x,
+            x2: marker.x,
+            y1: 0,
+            y2: 24,
+            stroke: 'var(--dsw-alias-label-secondary)',
+            strokeWidth: '0.6',
+            strokeDasharray: '2 2',
             vectorEffect: 'non-scaling-stroke',
-          })));
+          }),
+          h('circle', { cx: marker.x, cy: marker.y, r: '1.7', fill: stroke }))));
       };
 
       const rowFor = (symbol) => {
         const quote = quoteBySymbol.get(symbol);
         const tone = quote === undefined ? '' : `dsq-${toneOf(quote.change)}`;
+        // While the pointer is over this row's sparkline the three price cells show
+        // the point under it instead of the latest tick, so the line can be read.
+        const entry = trends[symbol];
+        const scrub = rowHover !== null && rowHover.symbol === symbol && entry !== undefined
+          ? entry.points[rowHover.index]
+          : undefined;
+        const preClose = quote === undefined ? undefined : quote.preClose;
+        const hasPreClose = typeof preClose === 'number' && Number.isFinite(preClose) && preClose !== 0;
+        const scrubbedChange = scrub === undefined || !hasPreClose ? undefined : scrub.v - preClose;
+        const scrubbedPct = scrubbedChange === undefined ? undefined : (scrubbedChange / preClose) * 100;
+        const cellTone = scrub === undefined ? tone : `dsq-${toneOf(scrubbedChange)}`;
         const isSelected = selected.has(symbol);
         const isDropTarget = dropAt !== null && dropAt.symbol === symbol;
         const className = [
@@ -1482,9 +1549,9 @@ window.__ModuleLoader__.load({
         const numeric = quote === undefined
           ? [0, 1, 2, 3, 4, 5, 6].map((index) => h('div', { className: 'dsq-num', role: 'cell', key: `dash${index}` }, '—'))
           : [
-            h('div', { className: `dsq-num ${tone}`, role: 'cell' }, fmt(quote.price)),
-            h('div', { className: `dsq-num ${tone}`, role: 'cell' }, fmtSigned(quote.change)),
-            h('div', { className: `dsq-num ${tone}`, role: 'cell' }, `${fmtSigned(quote.changePct)}%`),
+            h('div', { className: `dsq-num ${cellTone}`, role: 'cell' }, fmt(scrub === undefined ? quote.price : scrub.v)),
+            h('div', { className: `dsq-num ${cellTone}`, role: 'cell' }, fmtSigned(scrub === undefined ? quote.change : scrubbedChange)),
+            h('div', { className: `dsq-num ${cellTone}`, role: 'cell' }, `${fmtSigned(scrub === undefined ? quote.changePct : scrubbedPct)}%`),
             h('div', { className: 'dsq-num', role: 'cell' }, fmt(quote.open)),
             h('div', { className: 'dsq-num', role: 'cell' }, fmt(quote.high)),
             h('div', { className: 'dsq-num', role: 'cell' }, fmt(quote.low)),
@@ -1546,7 +1613,9 @@ window.__ModuleLoader__.load({
           }, '\u28ff')),
         h('div', { className: 'dsq-id', role: 'cell' },
           h('span', { className: 'dsq-name' }, quote === undefined ? symbol : (quote.name || quote.code)),
-          h('span', { className: 'dsq-code' }, quote === undefined ? t('panel.unresolved') : `${symbol} · ${quote.market}`)),
+          h('span', { className: 'dsq-code' }, scrub === undefined
+            ? (quote === undefined ? t('panel.unresolved') : `${symbol} · ${quote.market}`)
+            : `${symbol} · ${scrub.t}`)),
         ...rowCells);
       };
 
@@ -2024,6 +2093,9 @@ window.__ModuleLoader__.load({
         candidateSecids,
         searchIndex,
         sparklinePath,
+        seriesXAt,
+        seriesY,
+        seriesBounds,
         fetchTrend,
         focusGeometry,
         nearestIndex,

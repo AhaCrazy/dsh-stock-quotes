@@ -187,6 +187,16 @@ check('empty series draws nothing', sparklinePath([], { kind: 'cn' }), '');
 check('non-numeric points are ignored',
   sparklinePath(series([['09:30', 5], ['09:31', null], ['09:32', 7], ['09:33', 'x'], ['09:34', 9]]), { kind: 'cn' }).split('L').length, 3);
 
+// --- scrubbing the sparkline ----------------------------------------------
+const { seriesXAt, seriesY, seriesBounds } = mod.internals;
+check('series bounds ignore junk', seriesBounds([{ v: 1 }, { v: null }, { v: 3 }, null, {}]), { min: 1, max: 3 });
+check('series bounds of an empty series', seriesBounds([]), null);
+check('the maximum sits at the top', seriesY(10, 0, 10, 24).toFixed(2), '1.00');
+check('the minimum sits at the bottom', seriesY(0, 0, 10, 24).toFixed(2), '23.00');
+check('a flat series sits on the midline', seriesY(5, 5, 5, 24), 12);
+check('x follows the session clock', seriesXAt(series([['09:30', 1], ['11:30', 2]]), 1, 'cn').toFixed(1), '44.0');
+check('x falls back to the index without a session', seriesXAt(series([['09:30', 1], ['11:30', 2]]), 1).toFixed(1), '88.0');
+
 // --- the focus chart -------------------------------------------------------
 const { focusGeometry, nearestIndex, xAxisTicks, formatLots } = mod.internals;
 const CN_DAY = [
@@ -343,6 +353,8 @@ check('charts are on by default', chartCells(pageTree).length, rows.length + 1);
 check('the table carries the chart class', String(tablewrapOf(pageTree).props.className).includes('dsq-chart-on'), true);
 check('the chart header is present', chartCells(pageTree)[0].props.role, 'columnheader');
 check('a chart cell is emitted even before the series lands', chartCells(pageTree)[1].children.filter(Boolean).length, 0);
+check('the chart cell accepts pointer moves', typeof chartCells(pageTree)[1].props.onPointerMove, 'function');
+check('the chart cell clears the pointer', typeof chartCells(pageTree)[1].props.onPointerLeave, 'function');
 
 setPrefs({ chart: false });
 const plainTree = byName('main')[0].component({ t });

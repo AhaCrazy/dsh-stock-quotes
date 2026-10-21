@@ -61,6 +61,7 @@ The **Charts** button in the toolbar toggles a per-row **intraday line** (today'
 - Colour follows the day's move — red up, green down, neutral when flat — matching the number columns
 - With charts off, **no trend request is made**; only the numbers remain
 - A row whose series has not arrived yet keeps an empty cell, so columns never shift
+- **Hover a sparkline to read it**: a crosshair follows the pointer and that row's price / change / % cells temporarily show the minute under it (the code line shows the timestamp, e.g. `sh600519 · 11:30`), snapping back when the pointer leaves
 
 ### Focus chart (click a row)
 
