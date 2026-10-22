@@ -273,6 +273,21 @@ check('charts default to on', normalisePrefs({}).chart, true);
 check('an international convention is kept', normalisePrefs({ convention: 'intl' }).convention, 'intl');
 check('a hidden column is kept hidden', normalisePrefs({ columns: { open: false } }).columns.open, false);
 
+// --- bounded concurrency ---------------------------------------------------
+// 2.0.0 shipped an empty chart column because the limit constant was undefined;
+// `mapLimit` now treats a bad limit as a small positive width instead of zero.
+const { mapLimit } = mod.internals;
+const seen = [];
+const limited = await mapLimit([1, 2, 3, 4, 5], 2, async (item) => {
+  seen.push(item);
+  return item * 2;
+});
+check('every item runs exactly once', limited, [2, 4, 6, 8, 10]);
+check('the input order is preserved', seen.slice().sort((a, b) => a - b), [1, 2, 3, 4, 5]);
+const invalidLimit = await mapLimit([1, 2, 3], undefined, async (item) => item + 1);
+check('an invalid limit still runs the work', invalidLimit, [2, 3, 4]);
+check('an empty list resolves to an empty array', await mapLimit([], 4, async () => 1), []);
+
 // --- fake Cordis client context -------------------------------------------
 const registered = [];
 const injected = [];

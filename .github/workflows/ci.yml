@@ -1,9 +1,9 @@
 # CI for dsh-stock-quotes.
 #
-# The plugin has no runtime dependencies and the test suite is plain
-# `node tests/*.test.mjs`, so this workflow deliberately installs nothing:
-# checkout, Node, syntax check, `npm test`, JSON parse check. No lint step —
-# ESLint/Prettier are documented as opt-in and are not devDependencies.
+# The plugin has no runtime dependencies; devDependencies are lint tooling only.
+# The lint step is what caught a shipped bug where a constant was referenced but
+# never defined (a dead chart-refresh path that `node --check` cannot see), so it
+# is gating rather than optional.
 name: CI
 
 on:
@@ -42,6 +42,16 @@ jobs:
         run: |
           node --version
           npm --version
+
+      # devDependencies are lint tooling only; they are not needed at runtime.
+      - name: Install lint tooling
+        run: npm ci
+
+      # `no-undef` is the point: it catches a referenced-but-undefined identifier
+      # that a syntax check cannot, which is exactly how 2.0.0 shipped an empty
+      # chart column.
+      - name: Lint
+        run: npm run lint
 
       # Parse every JavaScript file with the same Node that runs the tests, so
       # a syntax error fails with the exact file instead of a confusing import

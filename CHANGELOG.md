@@ -11,6 +11,24 @@ those series closed. The current release is **2.0.0**, cut on 2026-10-22.
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-10-22
+
+### Fixed
+
+- **The trend column was empty.** 2.0.0 referenced a request-concurrency constant
+  that was never defined, so the intraday refresh threw and the sparklines never
+  received data (the focus chart kept working because it loads its own series).
+  The constant is defined, `mapLimit` falls back to a safe width instead of
+  running nothing, and the refresh logs instead of failing silently.
+- Lint findings: an unused constant, two needless regex escapes, and a missing
+  browser global in the ESLint config.
+
+### Changed
+
+- ESLint is now a gating CI step (`npm ci && npm run lint`) with committed
+  devDependencies and lockfile. `no-undef` catches exactly the class of bug this
+  patch fixes, which a syntax check cannot.
+
 ## [2.0.0] - 2026-10-22
 
 The release that turns the 1.x panel into a configurable, multi-watchlist tool

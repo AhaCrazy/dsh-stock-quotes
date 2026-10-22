@@ -81,7 +81,7 @@ export function candidateSecids(input) {
   if (raw === '') return [];
 
   // Suffix notation: `600519.SH`, `000001.SZ`, `00700.HK`, `AAPL.US`, `AAPL.O`.
-  const suffixed = /^([^.\-]+)[.\-]([A-Za-z]{1,2})$/.exec(raw);
+  const suffixed = /^([^.-]+)[.-]([A-Za-z]{1,2})$/.exec(raw);
   if (suffixed !== null) {
     const market = SUFFIX_MARKETS[suffixed[2].toUpperCase()];
     const body = suffixed[1].trim().toUpperCase();

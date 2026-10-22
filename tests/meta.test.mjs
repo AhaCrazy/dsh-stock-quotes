@@ -29,7 +29,16 @@ check('it declares public access', pkg.publishConfig.access, 'public');
 check('it declares DSH compatibility', typeof pkg.engines.dsh, 'string');
 check('it declares a Node floor', typeof pkg.engines.node, 'string');
 check('no runtime dependencies', pkg.dependencies, undefined);
-check('no runtime devDependencies needed by tests', pkg.devDependencies, undefined);
+const devDeps = Object.keys(pkg.devDependencies === undefined ? {} : pkg.devDependencies).sort();
+check('dev dependencies are lint tooling only', devDeps, ['@eslint/js', 'eslint']);
+check('the lockfile is committed', (() => {
+  try {
+    readFileSync(new URL('../package-lock.json', import.meta.url));
+    return true;
+  } catch {
+    return false;
+  }
+})(), true);
 check('the browser half ships', pkg.files.includes('client.js'), true);
 check('the search index ships', pkg.files.some((entry) => entry.startsWith('data/')), true);
 check('the index builder ships', pkg.files.some((entry) => entry.startsWith('scripts/')), true);

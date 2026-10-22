@@ -20,8 +20,9 @@ window.__ModuleLoader__.load({
     /** Must equal package.json `name`: it keys the bundle's own settings card. */
     const PKG = 'dsh-stock-quotes';
     const STORAGE_KEY = 'dsh-stock-quotes/watchlist';
-    const REFRESH_MS = 15000;
     const CHART_TTL = 60000;
+    /** At most this many intraday requests in flight at once. */
+    const TREND_CONCURRENCY = 4;
     const DEFAULT_SYMBOLS = ['sh000001', 'sh600519', 'sz300750', 'hk00700', 'usAAPL'];
 
     const BATCH_ENDPOINT = 'https://push2.eastmoney.com/api/qt/ulist.np/get';
@@ -229,7 +230,7 @@ window.__ModuleLoader__.load({
       const raw = input.trim();
       if (raw === '') return [];
 
-      const suffixed = /^([^.\-]+)[.\-]([A-Za-z]{1,2})$/.exec(raw);
+      const suffixed = /^([^.-]+)[.-]([A-Za-z]{1,2})$/.exec(raw);
       if (suffixed !== null) {
         const market = SUFFIX_MARKETS[suffixed[2].toUpperCase()];
         const suffixedBody = suffixed[1].trim().toUpperCase();
@@ -332,7 +333,7 @@ window.__ModuleLoader__.load({
      * fallback for a development build whose tag does not exist yet; `tests/meta.test.mjs`
      * keeps INDEX_VERSION equal to package.json.
      */
-    const INDEX_VERSION = '2.0.0';
+    const INDEX_VERSION = '2.0.1';
     const INDEX_URLS = [
       `https://cdn.jsdelivr.net/gh/AhaCrazy/dsh-stock-quotes@v${INDEX_VERSION}/data/securities.json`,
       'https://raw.githubusercontent.com/AhaCrazy/dsh-stock-quotes/main/data/securities.json',
@@ -484,9 +485,12 @@ window.__ModuleLoader__.load({
     async function mapLimit(items, limit, worker) {
       const list = Array.isArray(items) ? items : [];
       const results = new Array(list.length);
+      // A bad limit must not silently turn into "never run": fall back to a small
+      // positive width so the work still happens.
+      const wanted = Number.isFinite(limit) && limit >= 1 ? Math.floor(limit) : 4;
+      const width = Math.max(1, Math.min(wanted, list.length));
       let next = 0;
       const runners = [];
-      const width = Math.max(1, Math.min(limit, list.length));
       for (let slot = 0; slot < width; slot += 1) {
         runners.push((async () => {
           while (next < list.length) {
@@ -1302,30 +1306,36 @@ window.__ModuleLoader__.load({
         if (!chart) return undefined;
         let cancelled = false;
         const load = async () => {
-          const wanted = symbolsRef.current.filter((symbol) => {
-            const entry = trendsRef.current[symbol];
-            return entry === undefined || Date.now() - entry.at > CHART_TTL;
-          }).slice(0, 40);
-          if (wanted.length === 0) return;
-          const settled = await mapLimit(wanted, TREND_CONCURRENCY, async (symbol) => {
-            try {
-              const points = await fetchTrend(symbol);
-              return [symbol, points];
-            } catch {
-              return null;
+          try {
+            const wanted = symbolsRef.current.filter((symbol) => {
+              const entry = trendsRef.current[symbol];
+              return entry === undefined || Date.now() - entry.at > CHART_TTL;
+            }).slice(0, 40);
+            if (wanted.length === 0) return;
+            const settled = await mapLimit(wanted, TREND_CONCURRENCY, async (symbol) => {
+              try {
+                const points = await fetchTrend(symbol);
+                return [symbol, points];
+              } catch {
+                return null;
+              }
+            });
+            if (cancelled) return;
+            const next = { ...trendsRef.current };
+            let changed = false;
+            for (const item of settled) {
+              if (item === null) continue;
+              next[item[0]] = { at: Date.now(), points: item[1] };
+              changed = true;
             }
-          });
-          if (cancelled) return;
-          const next = { ...trendsRef.current };
-          let changed = false;
-          for (const item of settled) {
-            if (item === null) continue;
-            next[item[0]] = { at: Date.now(), points: item[1] };
-            changed = true;
+            if (!changed) return;
+            trendsRef.current = next;
+            setTrends(next);
+          } catch (error) {
+            // A failed chart refresh must never take the panel down, and must never
+            // fail silently: the next tick retries, and the console keeps the reason.
+            console.error('[dsh-stock-quotes] intraday refresh failed', error);
           }
-          if (!changed) return;
-          trendsRef.current = next;
-          setTrends(next);
         };
         void load();
         const id = window.setInterval(() => {
@@ -2523,6 +2533,7 @@ window.__ModuleLoader__.load({
         seriesBounds,
         sortSymbols,
         normalisePrefs,
+        mapLimit,
         fetchTrend,
         focusGeometry,
         nearestIndex,

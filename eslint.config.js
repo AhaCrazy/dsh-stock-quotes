@@ -38,15 +38,22 @@ const nodeGlobals = {
 
 /** Browser globals used by `client.js`, which never runs in Node. */
 const browserGlobals = {
+  AbortController: 'readonly',
+  AbortSignal: 'readonly',
   cancelAnimationFrame: 'readonly',
   clearInterval: 'readonly',
   clearTimeout: 'readonly',
   document: 'readonly',
   fetch: 'readonly',
   localStorage: 'readonly',
+  navigator: 'readonly',
+  queueMicrotask: 'readonly',
   requestAnimationFrame: 'readonly',
   setInterval: 'readonly',
   setTimeout: 'readonly',
+  structuredClone: 'readonly',
+  TextDecoder: 'readonly',
+  TextEncoder: 'readonly',
   window: 'readonly',
 };
 
