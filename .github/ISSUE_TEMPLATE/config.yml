@@ -1,0 +1,10 @@
+# Force contributors through the issue forms: a blank issue would skip the
+# version fields that most bug reports need.
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation (中文)
+    url: https://github.com/AhaCrazy/dsh-stock-quotes#readme
+    about: 安装步骤、面板操作、代码写法、板块与搜索、配置说明。
+  - name: Documentation (English)
+    url: https://github.com/AhaCrazy/dsh-stock-quotes/blob/main/README.en.md
+    about: Install steps, panel actions, symbol spellings, boards, search and configuration.

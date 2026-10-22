@@ -178,6 +178,16 @@ check('a US session crosses midnight without wrapping the axis',
   tailOf(sparklinePath(series([['21:30', 10], ['04:00', 20]]), { kind: 'us' })), 'L88.00 1.00');
 check('US mid-session lands proportionally',
   tailOf(sparklinePath(series([['21:30', 10], ['00:30', 20]]), { kind: 'us' })), 'L40.62 1.00');
+// Daylight saving: the US session opens at 21:30 Beijing in summer and 22:30 in
+// winter. The open comes from the data, so both fill the box identically.
+check('the US winter session fills the box',
+  tailOf(sparklinePath(series([['22:30', 10], ['05:00', 20]]), { kind: 'us' })), 'L88.00 1.00');
+check('the US winter clock follows the data',
+  mod.internals.xAxisTicks(series([['22:30', 10], ['05:00', 20]]), 'us', 1, 390).map((tick) => tick.label),
+  ['22:30', '01:00', '05:00']);
+check('the US summer clock follows the data',
+  mod.internals.xAxisTicks(series([['21:30', 10], ['04:00', 20]]), 'us', 1, 390).map((tick) => tick.label),
+  ['21:30', '00:00', '04:00']);
 check('an unknown session falls back to stretching',
   tailOf(sparklinePath(series([['09:30', 10], ['11:30', 20]]))), 'L88.00 1.00');
 check('flat series sits on the midline',
@@ -235,6 +245,33 @@ check('an empty series has no nearest index', nearestIndex([], 0.5, 'cn', 1), -1
 check('lots are humanised', formatLots(123456), '12.35万手');
 check('small lots stay raw', formatLots(43), '43手');
 check('missing lots render a dash', formatLots(undefined), '—');
+
+// --- sorting and preferences ----------------------------------------------
+const { sortSymbols, normalisePrefs } = mod.internals;
+const QUOTES = new Map([
+  ['a', { name: 'AAA', price: 10, change: -1, changePct: -2, amount: 100 }],
+  ['b', { name: 'BBB', price: 30, change: 3, changePct: 5, amount: 300 }],
+  ['c', { name: 'CCC', price: 20, change: 0, changePct: 0, amount: 200 }],
+]);
+check('an unsorted list keeps the stored order', sortSymbols(['c', 'a', 'b'], null, 'desc', QUOTES), ['c', 'a', 'b']);
+check('sort by change descending', sortSymbols(['a', 'b', 'c'], 'pct', 'desc', QUOTES), ['b', 'c', 'a']);
+check('sort by change ascending', sortSymbols(['a', 'b', 'c'], 'pct', 'asc', QUOTES), ['a', 'c', 'b']);
+check('sort by price', sortSymbols(['a', 'b', 'c'], 'price', 'asc', QUOTES), ['a', 'c', 'b']);
+check('rows without a quote sink to the bottom', sortSymbols(['zz', 'a', 'b'], 'pct', 'desc', QUOTES), ['b', 'a', 'zz']);
+const before = ['a', 'b'];
+sortSymbols(before, 'pct', 'desc', QUOTES);
+check('sorting does not mutate the watchlist', before, ['a', 'b']);
+
+const defaults = normalisePrefs(undefined);
+check('default refresh interval', defaults.refreshSeconds, 15);
+check('default colour convention', defaults.convention, 'cn');
+check('every optional column is on by default', defaults.columns, { open: true, high: true, low: true, amount: true });
+check('an unknown refresh interval falls back', normalisePrefs({ refreshSeconds: 7 }).refreshSeconds, 15);
+check('the alert threshold is clamped', normalisePrefs({ alertPct: 999 }).alertPct, 100);
+check('a negative alert threshold disables alerts', normalisePrefs({ alertPct: -3 }).alertPct, 0);
+check('charts default to on', normalisePrefs({}).chart, true);
+check('an international convention is kept', normalisePrefs({ convention: 'intl' }).convention, 'intl');
+check('a hidden column is kept hidden', normalisePrefs({ columns: { open: false } }).columns.open, false);
 
 // --- fake Cordis client context -------------------------------------------
 const registered = [];
@@ -310,7 +347,11 @@ store.delete('dsh-stock-quotes/prefs');
 // --- the bundle-page card --------------------------------------------------
 const cardTree = byName('plugins.bundle.config')[0].component({ t });
 check('bundle card renders', renderText(cardTree).includes('\u9762\u677f\u8bbe\u7f6e'), true);
-check('bundle card has one input', inputsOf(cardTree).length, 1);
+const cardInputs = inputsOf(cardTree);
+check('the name field is first', cardInputs[0].props.maxLength, 24);
+check('the card carries refresh, colours, columns and alert controls', cardInputs.length >= 6, true);
+check('the card offers a transfer box',
+  collect(cardTree).some((node) => node.type === 'textarea'), true);
 
 setPrefs({ label: 'Records' });
 const cardTree2 = byName('plugins.bundle.config')[0].component({ t });
@@ -350,7 +391,8 @@ check('header column count matches the body', headRow.children.length, firstRow.
 const chartCells = (tree) => collect(tree).filter((node) => node.props && node.props.className === 'dsq-chart');
 const tablewrapOf = (tree) => collect(tree).find((node) => node.props && node.props.className !== undefined && String(node.props.className).includes('dsq-tablewrap'));
 check('charts are on by default', chartCells(pageTree).length, rows.length + 1);
-check('the table carries the chart class', String(tablewrapOf(pageTree).props.className).includes('dsq-chart-on'), true);
+check('the grid template carries the chart column',
+  String(rows[0].props.style.gridTemplateColumns).includes('minmax(88px'), true);
 check('the chart header is present', chartCells(pageTree)[0].props.role, 'columnheader');
 check('a chart cell is emitted even before the series lands', chartCells(pageTree)[1].children.filter(Boolean).length, 0);
 check('the chart cell accepts pointer moves', typeof chartCells(pageTree)[1].props.onPointerMove, 'function');
@@ -360,7 +402,8 @@ setPrefs({ chart: false });
 const plainTree = byName('main')[0].component({ t });
 const plainRows = rowsOf(plainTree);
 check('charts are off when the preference says so', chartCells(plainTree).length, 0);
-check('the table drops the chart class', String(tablewrapOf(plainTree).props.className).includes('dsq-chart-on'), false);
+check('the grid drops the chart column',
+  String(plainRows[0].props.style.gridTemplateColumns).includes('minmax(88px'), false);
 check('rows stay aligned without the column', plainRows[0].children.length, rows[0].children.length - 1);
 store.delete('dsh-stock-quotes/prefs');
 

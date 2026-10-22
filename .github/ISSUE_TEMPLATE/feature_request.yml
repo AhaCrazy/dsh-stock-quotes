@@ -1,0 +1,69 @@
+name: Feature request
+description: Suggest an improvement to the panel, the stock_quote tool or the docs. 功能建议请用这个模板。
+title: '[Feature]: '
+labels: ['enhancement']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion. 感谢提出建议。
+
+        Quote data itself comes from Eastmoney's public endpoints, so requests
+        for new markets or fields can only be honoured where that source
+        provides them. 行情数据来自东方财富公开接口，新增市场/字段受数据源限制。
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is awkward or missing today? 现在哪里不方便？
+      placeholder: |
+        I want to compare ...
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How you imagine it working, including any UI sketch. 你希望它怎么工作。
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other workarounds or designs you thought about. 考虑过的替代方案。
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Where would the change live? 涉及哪一块。
+      multiple: true
+      options:
+        - Sidebar panel (行情面板)
+        - stock_quote tool
+        - Sparkline / focus chart
+        - Search and symbol resolution
+        - Settings, watchlists or import/export
+        - Alerts / notifications
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Screenshots, related issues, or the quotes you would like to see. 截图、相关 issue 或其他背景。
+    validations:
+      required: false
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched the existing issues and this is not a duplicate. 我已搜索过 issue，确认不是重复建议。
+          required: true
+        - label: I am willing to open a pull request for this. 我愿意为此提交 PR。
+          required: false

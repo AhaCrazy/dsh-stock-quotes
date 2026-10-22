@@ -1,0 +1,86 @@
+# CI for dsh-stock-quotes.
+#
+# The plugin has no runtime dependencies and the test suite is plain
+# `node tests/*.test.mjs`, so this workflow deliberately installs nothing:
+# checkout, Node, syntax check, `npm test`, JSON parse check. No lint step —
+# ESLint/Prettier are documented as opt-in and are not devDependencies.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Node ${{ matrix.node-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [20.x, 22.x, 24.x]
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Show toolchain versions
+        run: |
+          node --version
+          npm --version
+
+      # Parse every JavaScript file with the same Node that runs the tests, so
+      # a syntax error fails with the exact file instead of a confusing import
+      # failure inside a test.
+      - name: Syntax check every JavaScript file
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(
+            find . \
+              \( -path './.git' -o -path './node_modules' \) -prune -o \
+              -type f \( -name '*.js' -o -name '*.mjs' \) -print | sort
+          )
+          echo "Checking ${#files[@]} JavaScript file(s)"
+          for file in "${files[@]}"; do
+            node --check "$file"
+          done
+          echo "All JavaScript files parse."
+
+      - name: Run the test suite
+        run: npm test
+
+      # data/securities.json and locale/*.json ship to users; a stray comma
+      # there would only explode at runtime, so every JSON file must parse.
+      - name: Validate every JSON file
+        shell: bash
+        run: |
+          set -euo pipefail
+          failed=0
+          while IFS= read -r file; do
+            if node -e 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"))' "$file"; then
+              echo "ok      $file"
+            else
+              echo "::error file=$file::File is not valid JSON"
+              failed=1
+            fi
+          done < <(
+            find . \
+              \( -path './.git' -o -path './node_modules' \) -prune -o \
+              -type f -name '*.json' -print | sort
+          )
+          exit "$failed"

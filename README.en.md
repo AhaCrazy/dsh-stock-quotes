@@ -74,9 +74,24 @@ The sparkline only shows shape. **Click any row** and a full-width chart for tha
 - **1D / 5D** switch: five-day mode splits by trading day and labels dates instead of the clock
 - One-day mode also draws the **average price line** (dashed)
 
-## Display name
+## Settings
 
-The sidebar label, the panel heading and the notification text all use one configurable name, defaulting to `数据`. Change it in **Settings → Plugins → "数据面板" → Panel settings**. Leave the field empty to get the default back. Values are whitespace-collapsed and capped at 24 characters; they live in `localStorage` under `dsh-stock-quotes/prefs`.
+Everything lives on **Settings → Plugins → "数据面板"** and applies immediately:
+
+| Setting | Meaning |
+|---|---|
+| Display name | One name for the sidebar label, panel heading and notices, default `数据`. Whitespace-collapsed, capped at 24 characters |
+| Refresh interval | 5 / 10 / 15 / 30 / 60 s; consecutive failures back off automatically (up to 2 minutes) and reset on success |
+| Up / down colours | Red up / green down (China) or green up / red down (international) — numbers and chart switch together |
+| Visible columns | Open / high / low / turnover can be hidden; name, price, change, percentage and chart stay |
+| Move alert threshold | Show a banner when a symbol's daily move exceeds this percentage; 0 disables it |
+| Import / export watchlist | JSON in a text box (`{"version":1,"symbols":[...]}` or a plain array of strings), so a list can move between machines |
+
+Preferences live in `localStorage` under `dsh-stock-quotes/prefs`.
+
+**Sorting**: click the name / price / change / percentage / turnover headers to sort (descending → ascending → unsorted). A sorted table is a read-only view, so drag-reorder asks you to clear the sort first.
+
+**Keyboard**: `Tab` to a row, `Enter` or `Space` opens the focus chart, `Esc` closes it.
 
 ## Symbol spellings
 
@@ -184,6 +199,15 @@ npm test
 - `tests/client.test.mjs` — emulates the module loader, the locale service, the slot registry and React, then asserts what the plugin registers, what its components render, and the reorder/move list transforms.
 
 The Host half's full contract check needs packages from a DeepSeek Harness installation, so it is kept out of this repo.
+
+- `tests/meta.test.mjs` — release consistency: the version matches the index version pinned in the code, the changelog has an entry for it, `files` covers what must ship, there are no runtime dependencies, and the index is well formed.
+
+## Stability, data source and disclaimer
+
+- Quotes come from **Eastmoney's public endpoints** (`push2` / `push2his`). They are **unofficial, unauthorised and carry no SLA**: they may rate-limit, change fields or disappear. The plugin backs off and degrades gracefully on HTTP errors, but cannot promise availability.
+- The search index is a snapshot generated in this repository (`data/securities.json`) and fetched from a CDN **pinned to the release tag**. Re-run `node scripts/build-index.mjs` and publish when new listings appear.
+- Data **may be delayed or wrong**. This plugin is for looking at prices only: it is **not investment advice** and **must not be used for trading decisions**. Any loss from using it is the user's own.
+- The plugin collects and reports nothing; the watchlist and settings stay in the browser's `localStorage`.
 
 ## License
 
