@@ -41,7 +41,7 @@ jobs:
 
     steps:
       - name: Check out the tagged commit
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           # `gh release create --generate-notes` walks commits and tags.
           fetch-depth: 0
