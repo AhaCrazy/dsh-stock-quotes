@@ -2,6 +2,11 @@
 
 **中文** | [English](README.en.md)
 
+[![npm](https://img.shields.io/npm/v/dsh-stock-quotes)](https://www.npmjs.com/package/dsh-stock-quotes)
+[![downloads](https://img.shields.io/npm/dm/dsh-stock-quotes)](https://www.npmjs.com/package/dsh-stock-quotes)
+[![CI](https://github.com/AhaCrazy/dsh-stock-quotes/actions/workflows/ci.yml/badge.svg)](https://github.com/AhaCrazy/dsh-stock-quotes/actions/workflows/ci.yml)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 一个 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 插件：在侧边栏数据面板里显示**自选股实时行情**，同时注册 `stock_quote` 工具，让 Agent 能在对话里直接回答"茅台现在多少钱"这类问题。
 
 - **面板**：A 股 / 港股 / 美股自选股一张表 —— 最新价、涨跌额、涨跌幅、今开 / 最高 / 最低、成交额；15 秒自动刷新；右键菜单、拖拽排序、多选批量操作。
@@ -217,6 +222,8 @@ npm test
 Host 半的完整契约校验需要 DSH 安装目录里的包，因此没有放进本仓库。
 
 - `tests/meta.test.mjs`：发布一致性——版本号与代码里锁定的索引版本一致、`CHANGELOG` 有对应条目、`files` 覆盖必需产物、无运行时依赖、索引结构完整。
+
+发版流程（打 `v*` tag 即发布，带 provenance）见 [RELEASING.md](RELEASING.md)。
 
 ## 稳定性、数据来源与免责声明
 

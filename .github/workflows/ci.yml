@@ -74,6 +74,12 @@ jobs:
       - name: Run the test suite
         run: npm test
 
+      # The same contract the release workflow enforces, checked on every push so
+      # a forgotten CHANGELOG entry or INDEX_VERSION bump fails here rather than
+      # at tag time.
+      - name: Check the version contract
+        run: npm run check:release
+
       # data/securities.json and locale/*.json ship to users; a stray comma
       # there would only explode at runtime, so every JSON file must parse.
       - name: Validate every JSON file

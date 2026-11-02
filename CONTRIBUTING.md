@@ -167,6 +167,16 @@ tool is required for a pull request.
 Versioning follows [Semantic Versioning](https://semver.org/): bug fixes bump
 patch, features bump minor, breaking changes bump major.
 
+## Releasing
+
+Only maintainers cut releases, and only from a tag. The short version: bump the
+version in `package.json`, `CHANGELOG.md` and `INDEX_VERSION` in `client.js` in a
+single commit, run `npm run check:release`, then push a `vX.Y.Z` tag. The tag
+starts `.github/workflows/release.yml`, which verifies that contract, lints,
+tests, publishes to npm with provenance, and opens the GitHub release. The full
+checklist, credential setup (trusted publishing or `NPM_TOKEN`) and the registry
+quirks are in [RELEASING.md](RELEASING.md).
+
 ---
 
 ## 中文
@@ -279,3 +289,12 @@ npx prettier --check .
 
 版本号遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)：修 Bug 升
 patch，新功能升 minor，破坏性变更升 major。
+
+### 发版
+
+发版只由维护者做，且只从 tag 出发。简版流程：在**同一次提交**里改
+`package.json`、`CHANGELOG.md` 和 `client.js` 的 `INDEX_VERSION`，跑
+`npm run check:release`，再推一个 `vX.Y.Z` tag。推 tag 会触发
+`.github/workflows/release.yml`：校验版本一致性、lint、测试、带 provenance 发布到
+npm，并创建 GitHub Release。完整清单、凭据配置（trusted publishing 或
+`NPM_TOKEN`）以及 registry 的坑，见 [RELEASING.md](RELEASING.md)。

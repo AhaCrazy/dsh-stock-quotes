@@ -1,0 +1,114 @@
+# Release automation for dsh-stock-quotes.
+#
+# A pushed `v*` tag is the only trigger: this workflow checks that the tag, the
+# package manifest and the pinned search-index version agree, then publishes to
+# npm and opens the matching GitHub release. Nothing here runs on a branch push,
+# so a stray commit to `main` cannot ship.
+#
+# Publish credentials — the job supports both setups:
+#
+#   1. Trusted publishing (recommended, no long-lived secret). On npmjs.com open
+#      the package → Settings → Trusted publishing, add this repository and the
+#      workflow name `release.yml`. The `id-token: write` permission below is
+#      what npm exchanges for a short-lived publish credential.
+#   2. A granular npm token with read-and-write access to this package, stored as
+#      the repository secret NPM_TOKEN. npm is restricting granular tokens that
+#      bypass 2FA for direct publishing, so option 1 is the durable one.
+#
+# Either way the tarball is published with provenance, so the npm page links it
+# to this workflow run and the exact commit it was built from.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write # create the GitHub release
+  id-token: write # npm provenance, and trusted publishing when configured
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Publish ${{ github.ref_name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+    steps:
+      - name: Check out the tagged commit
+        uses: actions/checkout@v5
+        with:
+          # `gh release create --generate-notes` walks commits and tags.
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      # Trusted publishing needs an npm CLI that speaks OIDC (11.5+), and
+      # provenance is documented against the current release line. Pinned to a
+      # major so a surprise CLI major cannot change `npm publish` flags.
+      - name: Use a publish-capable npm
+        run: npm install --global 'npm@^11.5.0'
+
+      - name: Install lint tooling
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Run the test suite
+        run: npm test
+
+      # A release is exactly one version in four places: the tag, package.json,
+      # CHANGELOG.md and the pinned search-index version. This refuses a tag that
+      # disagrees before anything reaches the registry.
+      - name: Refuse a release that disagrees with itself
+        run: npm run check:release
+
+      # Re-running a job that published but then failed (for example while
+      # creating the GitHub release) must not fail on "cannot publish over an
+      # existing version".
+      - name: Check whether this version is already on the registry
+        id: registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          if npm view "dsh-stock-quotes@${version}" version >/dev/null 2>&1; then
+            echo "already-published=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::dsh-stock-quotes@${version} is already on npm; skipping the publish step."
+          else
+            echo "already-published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish with a granular token
+        if: env.NPM_TOKEN != '' && steps.registry.outputs.already-published == 'false'
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish with trusted publishing
+        if: env.NPM_TOKEN == '' && steps.registry.outputs.already-published == 'false'
+        run: npm publish --provenance --access public
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          title="dsh-stock-quotes ${GITHUB_REF_NAME#v}"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            # Re-running a failed job must not fail on the release it already made.
+            gh release edit "$GITHUB_REF_NAME" --title "$title"
+          else
+            gh release create "$GITHUB_REF_NAME" --verify-tag --title "$title" --generate-notes
+          fi

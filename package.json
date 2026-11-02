@@ -38,6 +38,7 @@
   "scripts": {
     "test": "node tests/meta.test.mjs && node tests/quotes.test.mjs && node tests/render.test.mjs && node tests/client.test.mjs",
     "prepublishOnly": "npm test",
+    "check:release": "node scripts/check-release.mjs",
     "build:index": "node scripts/build-index.mjs",
     "lint": "eslint client.js quotes.js index.js",
     "pack:check": "npm pack --dry-run"

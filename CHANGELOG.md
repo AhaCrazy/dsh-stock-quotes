@@ -11,6 +11,21 @@ those series closed. The current release is **2.0.2**, cut on 2026-11-02.
 
 ## [Unreleased]
 
+### Added
+
+- `.github/workflows/release.yml`: pushing a `v*` tag lints, tests, verifies that
+  the tag, `package.json`, `CHANGELOG.md` and `INDEX_VERSION` agree, publishes to
+  npm with provenance, and creates the GitHub release. Supported credentials are
+  trusted publishing (no secret) or a granular `NPM_TOKEN`.
+- `scripts/check-release.mjs` (`npm run check:release`) as the local and CI gate
+  for that same version contract.
+- `RELEASING.md` with the release checklist, the credential setup for both
+  publish paths, and the registry quirks (supply-chain age gate, first-publish
+  placeholder, `engines.dsh` check).
+- Dependabot for the lint tooling and the workflow actions, `.gitattributes` for
+  consistent line endings, and a `CODE_OF_CONDUCT.md`.
+- README badges for the npm package, CI and the licence.
+
 ## [2.0.2] - 2026-11-02
 
 Published to npm: the plugin now installs by package name.

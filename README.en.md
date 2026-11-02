@@ -2,6 +2,11 @@
 
 [中文](README.md) | **English**
 
+[![npm](https://img.shields.io/npm/v/dsh-stock-quotes)](https://www.npmjs.com/package/dsh-stock-quotes)
+[![downloads](https://img.shields.io/npm/dm/dsh-stock-quotes)](https://www.npmjs.com/package/dsh-stock-quotes)
+[![CI](https://github.com/AhaCrazy/dsh-stock-quotes/actions/workflows/ci.yml/badge.svg)](https://github.com/AhaCrazy/dsh-stock-quotes/actions/workflows/ci.yml)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin that shows **live quotes for a watchlist of stocks** in a sidebar data panel, and registers a `stock_quote` tool so the agent can answer "what is 贵州茅台 at right now" inside the conversation.
 
 - **Panel**: A-shares, Hong Kong and US symbols in one list — price, change, change %, open / high / low, turnover; 15 s auto-refresh; right-click menu, drag to reorder, multi-select batch actions.
@@ -217,6 +222,8 @@ npm test
 The Host half's full contract check needs packages from a DeepSeek Harness installation, so it is kept out of this repo.
 
 - `tests/meta.test.mjs` — release consistency: the version matches the index version pinned in the code, the changelog has an entry for it, `files` covers what must ship, there are no runtime dependencies, and the index is well formed.
+
+Releases are cut by pushing a `v*` tag, which publishes with provenance — see [RELEASING.md](RELEASING.md).
 
 ## Stability, data source and disclaimer
 
