@@ -17,17 +17,33 @@
 
 ## 安装
 
+插件已发布到 npm，在 DSH 会话里直接按包名安装就行：
+
+```
+plugin_manager  action: install_bundle  target: dsh-stock-quotes
+```
+
+要固定版本就把版本写进 spec（例如 `dsh-stock-quotes@2.0.2`）。Web 侧边栏的**插件**页也是同一套操作，在安装框里填包名即可 —— 底层是 `plugin_manager` 服务用 pnpm 从 registry 拉包，不需要提前 clone 仓库。
+
+> `plugin_manager` 的写操作要求 `danger-full-access` 权限或单次批准；安装后的 Host 代码在宿主进程里运行。
+
+只想确认包内容、不用 DSH 安装：
+
+```bash
+npm pack dsh-stock-quotes --dry-run   # 看会装进 profile 的文件清单
+```
+
+客户端模块加载后侧边栏会出现图标；没出现就刷新一次页面。`stock_quote` 会在下一次请求的工具清单里出现。
+
+从源码安装（改代码或离线时用）：
+
 ```bash
 git clone https://github.com/AhaCrazy/dsh-stock-quotes.git
 ```
 
-然后在 DSH 会话里按绝对路径安装这个 bundle：
-
 ```
 plugin_manager  action: install_bundle  target: <path-to>/dsh-stock-quotes
 ```
-
-客户端模块加载后侧边栏会出现图标；没出现就刷新一次页面。`stock_quote` 会在下一次请求的工具清单里出现。
 
 卸载：
 
@@ -135,7 +151,7 @@ plugin_manager  action: remove_bundle  target: dsh-stock-quotes
 
 排序规则：完全同名 → 名称前缀 → 名称包含 → 代码前缀。
 
-建议数据来自仓库里的 `data/securities.json`（约 1.1 万条：A 股、指数、港股、行业/概念板块），面板从 jsDelivr / raw.githubusercontent 拉取一次并缓存一天。索引由脚本生成：
+建议数据来自仓库里的 `data/securities.json`（约 1.1 万条：A 股、指数、港股、行业/概念板块），面板从 jsDelivr（npm 包版本优先，其次 git tag）/ raw.githubusercontent 拉取一次并缓存一天。索引由脚本生成：
 
 ```bash
 node scripts/build-index.mjs   # 需要能访问 push2.eastmoney.com
@@ -205,7 +221,7 @@ Host 半的完整契约校验需要 DSH 安装目录里的包，因此没有放�
 ## 稳定性、数据来源与免责声明
 
 - 行情来自**东方财富对外的公开接口**（`push2` / `push2his`），**非官方、未授权、无 SLA**：接口可能限流、改字段或停止服务。插件对 HTTP 错误做了退避与降级，但不能保证一直可用。
-- 搜索索引是仓库里生成的快照（`data/securities.json`），通过 CDN 按**版本标签**固定获取；新股上市后需要重新运行 `node scripts/build-index.mjs` 并发布。
+- 搜索索引是仓库里生成的快照（`data/securities.json`），通过 CDN 按**发布版本**固定获取（npm 包版本与 git tag 都带同一版本号）；新股上市后需要重新运行 `node scripts/build-index.mjs` 并发版。
 - 数据**可能延迟、可能不准确**。本插件仅供查看，**不构成任何投资建议**，**不得用于交易决策**。因使用本插件产生的任何损失由使用者自行承担。
 - 插件不收集、不上报任何数据；自选股与设置只存在浏览器 `localStorage`。
 

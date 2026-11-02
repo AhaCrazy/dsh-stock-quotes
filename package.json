@@ -1,6 +1,6 @@
 {
   "name": "dsh-stock-quotes",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "DeepSeek Harness plugin: a neutral, configurable sidebar data panel for A-share / Hong Kong / US quotes and boards, plus a stock_quote tool for the agent.",
   "keywords": [
     "dsh",
@@ -37,6 +37,7 @@
   },
   "scripts": {
     "test": "node tests/meta.test.mjs && node tests/quotes.test.mjs && node tests/render.test.mjs && node tests/client.test.mjs",
+    "prepublishOnly": "npm test",
     "build:index": "node scripts/build-index.mjs",
     "lint": "eslint client.js quotes.js index.js",
     "pack:check": "npm pack --dry-run"

@@ -7,9 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 The 1.x headings group the fast pre-2.0 development series (roughly one release
 per merged theme) rather than every intermediate patch; the dates are the days
-those series closed. The current release is **2.0.0**, cut on 2026-10-22.
+those series closed. The current release is **2.0.2**, cut on 2026-11-02.
 
 ## [Unreleased]
+
+## [2.0.2] - 2026-11-02
+
+Published to npm: the plugin now installs by package name.
+
+### Added
+
+- **npm distribution.** `dsh-stock-quotes` is on the public registry, so a DSH
+  session installs it by name —
+  `plugin_manager action: install_bundle target: dsh-stock-quotes` — instead of
+  requiring a clone and an absolute directory path.
+
+### Changed
+
+- The name-search index is fetched from jsDelivr's npm mirror first, so a panel
+  installed from the registry no longer depends on the GitHub release tag
+  existing; the tag URL and raw `main` stay as ordered fallbacks.
+- `npm publish` runs the test suite first (`prepublishOnly`), so a failing
+  release cannot reach the registry.
+- The README install sections lead with the npm path; the clone-and-install
+  path is documented as the development workflow.
 
 ## [2.0.1] - 2026-10-22
 

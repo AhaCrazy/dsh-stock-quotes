@@ -17,17 +17,33 @@ A [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) plugin tha
 
 ## Install
 
+The plugin is published to npm, so a DSH session installs it by package name:
+
+```
+plugin_manager  action: install_bundle  target: dsh-stock-quotes
+```
+
+Pin a version by putting it in the spec (for example `dsh-stock-quotes@2.0.2`). The **Plugins** page in the Web sidebar runs the same operation — type the package name into its install field. Under the hood `plugin_manager` has pnpm fetch the package from the registry, so no clone is needed.
+
+> Write operations of `plugin_manager` need `danger-full-access` or a per-call approval; installed Host code runs inside the host process.
+
+To inspect what would ship without installing it into DSH:
+
+```bash
+npm pack dsh-stock-quotes --dry-run
+```
+
+The sidebar icon appears once the client module loads — reload the page if it does not show up immediately. `stock_quote` shows up in the agent's tool list on the next request.
+
+Installing from source (while changing the code, or offline):
+
 ```bash
 git clone https://github.com/AhaCrazy/dsh-stock-quotes.git
 ```
 
-Then, from a DSH session, install the bundle by its absolute directory:
-
 ```
 plugin_manager  action: install_bundle  target: <path-to>/dsh-stock-quotes
 ```
-
-The sidebar icon appears once the client module loads — reload the page if it does not show up immediately. `stock_quote` shows up in the agent's tool list on the next request.
 
 To remove it:
 
@@ -135,7 +151,7 @@ You do not need to know the code — typing in the input pops suggestions (name 
 
 Ranking: exact name → name prefix → name substring → code prefix.
 
-The suggestions come from `data/securities.json` in this repository (~11k rows: A-shares, indices, Hong Kong, industry and concept boards). The panel fetches it once from jsDelivr / raw.githubusercontent and caches it for a day. The file is generated:
+The suggestions come from `data/securities.json` in this repository (~11k rows: A-shares, indices, Hong Kong, industry and concept boards). The panel fetches it once from jsDelivr (the npm package version first, then the git tag) / raw.githubusercontent and caches it for a day. The file is generated:
 
 ```bash
 node scripts/build-index.mjs   # needs access to push2.eastmoney.com
@@ -205,7 +221,7 @@ The Host half's full contract check needs packages from a DeepSeek Harness insta
 ## Stability, data source and disclaimer
 
 - Quotes come from **Eastmoney's public endpoints** (`push2` / `push2his`). They are **unofficial, unauthorised and carry no SLA**: they may rate-limit, change fields or disappear. The plugin backs off and degrades gracefully on HTTP errors, but cannot promise availability.
-- The search index is a snapshot generated in this repository (`data/securities.json`) and fetched from a CDN **pinned to the release tag**. Re-run `node scripts/build-index.mjs` and publish when new listings appear.
+- The search index is a snapshot generated in this repository (`data/securities.json`) and fetched from a CDN **pinned to the released version** (the npm package and the git tag carry the same version). Re-run `node scripts/build-index.mjs` and release when new listings appear.
 - Data **may be delayed or wrong**. This plugin is for looking at prices only: it is **not investment advice** and **must not be used for trading decisions**. Any loss from using it is the user's own.
 - The plugin collects and reports nothing; the watchlist and settings stay in the browser's `localStorage`.
 
