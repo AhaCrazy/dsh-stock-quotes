@@ -396,6 +396,7 @@ check('row reacts to right click', typeof firstRow.props.onContextMenu, 'functio
 check('row accepts drops', typeof firstRow.props.onDrop, 'function');
 check('row tracks drag over', typeof firstRow.props.onDragOver, 'function');
 check('row can be focused by clicking', typeof firstRow.props.onClick, 'function');
+check('row pre-fetches its chart on pointer down', typeof firstRow.props.onPointerDown, 'function');
 
 // Header: select-all checkbox plus the drag column, then the column labels.
 const headRow = collect(pageTree).find((node) => node.props && node.props.className === 'dsq-row dsq-headrow');
@@ -421,6 +422,62 @@ check('the grid drops the chart column',
   String(plainRows[0].props.style.gridTemplateColumns).includes('minmax(88px'), false);
 check('rows stay aligned without the column', plainRows[0].children.length, rows[0].children.length - 1);
 store.delete('dsh-stock-quotes/prefs');
+
+// --- the focus series request ----------------------------------------------
+// A click used to start a request with no timeout and no retry: a stalled or
+// reset endpoint left the chart on "loading" until the next refresh cycle.
+const { fetchTrend: clientTrend, retryDelay } = mod.internals;
+check('the first failure retries after the base delay', retryDelay(1), 2000);
+check('consecutive failures back off', retryDelay(3), 8000);
+check('the retry delay is capped', retryDelay(64), 30000);
+check('a missing attempt count falls back to the base delay', retryDelay(undefined), 2000);
+
+const trendJson = (rows) => ({ ok: true, status: 200, json: async () => ({ data: { trends: rows } }) });
+const happyTrend = await clientTrend('sh600519', undefined, 1, {
+  fetchImpl: async () => trendJson(['2026-11-05 09:31,10.5,120,10.4', '2026-11-05 09:32,10.6,80,10.5']),
+});
+check('a chart series parses into points', happyTrend.length, 2);
+check('a point keeps its clock', happyTrend[0].t, '09:31');
+check('a point keeps its average', happyTrend[0].avg, 10.4);
+
+// Every candidate market gets its own bound, so a stalled spelling cannot hold
+// the whole series forever.
+// Node's `AbortSignal.timeout` timer is unref'd, so the race below also keeps a
+// real timer on the loop; in a browser the panel's own frame does that.
+const hangStarted = Date.now();
+const stalled = await Promise.race([
+  clientTrend('000001', undefined, 1, {
+    timeoutMs: 60,
+    fetchImpl: (url, init) => new Promise((resolve, reject) => {
+      init.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+    }),
+  }),
+  new Promise((resolve) => setTimeout(() => resolve('still hanging'), 2000)),
+]);
+const hangElapsed = Date.now() - hangStarted;
+check('a stalled chart request yields no points', stalled, []);
+check('a stalled chart request gives up instead of hanging', hangElapsed < 1500, true);
+
+// A caller that cancels must still see the abort, not a silently empty series.
+const controller = new AbortController();
+const abortTimer = setTimeout(() => controller.abort(), 10);
+let abortThrew = false;
+try {
+  await Promise.race([
+    clientTrend('sh600519', controller.signal, 1, {
+      timeoutMs: 5000,
+      fetchImpl: (url, init) => new Promise((resolve, reject) => {
+        init.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+      }),
+    }),
+    new Promise((resolve) => setTimeout(() => resolve('still hanging'), 2000)),
+  ]);
+} catch {
+  abortThrew = true;
+} finally {
+  clearTimeout(abortTimer);
+}
+check('a caller abort still rejects', abortThrew, true);
 
 // --- source hygiene --------------------------------------------------------
 const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8');
