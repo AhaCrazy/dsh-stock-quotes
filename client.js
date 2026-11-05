@@ -23,6 +23,15 @@ window.__ModuleLoader__.load({
     const CHART_TTL = 60000;
     /** At most this many intraday requests in flight at once. */
     const TREND_CONCURRENCY = 4;
+    /**
+     * How long one chart request is given before it is abandoned. A socket that
+     * never answers must not leave the panel stuck on "loading" forever; the old
+     * code passed no signal at all, so a stalled request hung the chart.
+     */
+    const TREND_TIMEOUT_MS = 8000;
+    /** Backoff for a failed chart request: 2s, 4s, 8s, 16s, then the cap. */
+    const TREND_RETRY_BASE_MS = 2000;
+    const TREND_RETRY_MAX_MS = 30000;
     const DEFAULT_SYMBOLS = ['sh000001', 'sh600519', 'sz300750', 'hk00700', 'usAAPL'];
 
     const BATCH_ENDPOINT = 'https://push2.eastmoney.com/api/qt/ulist.np/get';
@@ -58,6 +67,7 @@ window.__ModuleLoader__.load({
       'focus.days5': '5日',
       'focus.close': '关闭',
       'focus.hint': '在图上移动鼠标查看具体数值',
+      'focus.error': '曲线加载失败',
       'panel.copied': '已复制代码',
       'panel.copyFailed': '复制失败',
       'menu.title': '关注项操作',
@@ -151,6 +161,8 @@ window.__ModuleLoader__.load({
 .dsq-focus-extra{color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}
 .dsq-focus svg{display:block;width:100%;height:auto;cursor:crosshair}
 .dsq-focus-empty{color:var(--dsw-alias-label-secondary);font-size:12px;line-height:32px}
+.dsq-focus-failed{display:flex;align-items:center;gap:8px;line-height:24px}
+.dsq-focus-error{color:var(--dsw-alias-state-error-primary)}
 .dsq-focus-cursor{min-height:18px;margin-top:2px;color:var(--dsw-alias-label-secondary);font-size:12px;line-height:18px;font-variant-numeric:tabular-nums}
 .dsq-row.dsq-focused{background:var(--dsw-alias-bg-layer-2);box-shadow:inset 2px 0 0 var(--dsw-alias-brand-primary)}
 .dsq-row:first-child{border-top:none}
@@ -416,18 +428,38 @@ window.__ModuleLoader__.load({
      * Intraday close series for one entry, trying each candidate market the
      * spelling allows. `close` is what the sparkline draws; `average` and `volume`
      * are what the focus chart reads out.
+     *
+     * Every candidate is bounded on its own: an endpoint that accepts the request
+     * and never answers is abandoned after `timeoutMs` and the next market is
+     * tried, instead of holding the caller forever.
+     *
      * @param input - a watchlist spelling.
-     * @param signal - optional abort signal.
+     * @param signal - optional abort signal from the caller.
      * @param days - 1 for today, 5 for the last five sessions.
+     * @param options - `timeoutMs` bounds each candidate; `fetchImpl` overrides the
+     *   transport for tests.
      * @returns `{ day, t, v, vol, avg }` rows in chronological order; empty when
      *   nothing answers.
      */
-    async function fetchTrend(input, signal, days = 1) {
+    async function fetchTrend(input, signal, days = 1, options = {}) {
+      const { fetchImpl = globalThis.fetch } = options;
+      const requested = options.timeoutMs === undefined ? TREND_TIMEOUT_MS : options.timeoutMs;
+      const timeoutMs = Number.isFinite(requested) && requested > 0 ? requested : TREND_TIMEOUT_MS;
+      const boundWith = (attempt) => {
+        if (attempt === undefined) return signal;
+        if (signal === undefined) return attempt;
+        return typeof AbortSignal.any === 'function' ? AbortSignal.any([signal, attempt]) : signal;
+      };
       for (const secid of candidateSecids(input)) {
+        const attempt = typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(timeoutMs) : undefined;
         try {
           const url = `${TREND_ENDPOINT}?secid=${encodeURIComponent(secid)}`
             + `&fields1=f1,f2&fields2=f51,f53,f56,f58&ndays=${days}&iscr=0&iscca=0&_=${Date.now()}`;
-          const response = await fetch(url, { signal, cache: 'no-store', headers: { accept: 'application/json' } });
+          const response = await fetchImpl(url, {
+            signal: boundWith(attempt),
+            cache: 'no-store',
+            headers: { accept: 'application/json' },
+          });
           if (!response.ok) continue;
           const payload = await response.json();
           const rows = payload !== null && payload !== undefined && payload.data
@@ -452,10 +484,26 @@ window.__ModuleLoader__.load({
           }
           if (points.length >= 2) return points;
         } catch (error) {
+          // The caller cancelled: stop, and let it see the abort. This candidate
+          // timing out is different: try the next spelling the market allows.
+          if (signal !== undefined && signal.aborted) throw error;
+          if (attempt !== undefined && attempt.aborted) continue;
           if (error !== null && typeof error === 'object' && error.name === 'AbortError') throw error;
         }
       }
       return [];
+    }
+
+    /**
+     * How long to wait before retrying a chart request that has failed `attempts`
+     * times in a row. A blank chart must not sit there for a full refresh cycle:
+     * 2s, 4s, 8s, 16s, then the cap.
+     * @param attempts - consecutive failures; 1 for the first.
+     * @returns Milliseconds.
+     */
+    function retryDelay(attempts) {
+      const count = Number.isFinite(attempts) && attempts > 0 ? Math.floor(attempts) : 1;
+      return Math.min(TREND_RETRY_BASE_MS * 2 ** (count - 1), TREND_RETRY_MAX_MS);
     }
 
     /**
@@ -1227,6 +1275,8 @@ window.__ModuleLoader__.load({
       const [hover, setHover] = React.useState(null);
       const [rowHover, setRowHover] = React.useState(null);
       const focusRef = React.useRef({});
+      /** Requests already in flight, keyed like `focusRef`, so a click can join one. */
+      const focusInflight = React.useRef({});
       const symbolsRef = React.useRef(symbols);
       symbolsRef.current = symbols;
       const trendsRef = React.useRef({});
@@ -1350,35 +1400,105 @@ window.__ModuleLoader__.load({
         };
       }, [chart, symbols]);
 
-      // The focus chart: one series per (symbol, day count), fetched on demand and
-      // refreshed on the same slow cadence as the sparklines.
+      /** Cache key for one focus series. */
+      const seriesKey = (symbol, days) => `${symbol}|${days}`;
+
+      /**
+       * Paint the focus chart from a series the panel already holds. The sparkline
+       * column fetches the same intraday series for every row, so a click reuses it
+       * and the chart is on screen in the first frame instead of waiting for
+       * another round trip. A stale copy is kept as the first paint and refreshed
+       * by the effect below.
+       */
+      const seedFocusSeries = (symbol, days) => {
+        if (days !== 1) return;
+        const rowSeries = trendsRef.current[symbol];
+        if (rowSeries === undefined || !Array.isArray(rowSeries.points) || rowSeries.points.length < 2) return;
+        const key = seriesKey(symbol, 1);
+        if (focusRef.current[key] !== undefined) return;
+        const next = { ...focusRef.current, [key]: { at: rowSeries.at, points: rowSeries.points } };
+        focusRef.current = next;
+        setFocusSeries(next);
+      };
+
+      /**
+       * Load one focus series, with at most one request per (symbol, day count) in
+       * flight: a click racing its own prefetch joins the request instead of
+       * starting a second one.
+       * @param symbol - watchlist spelling.
+       * @param days - 1 for today, 5 for the last five sessions.
+       * @param options - `force` re-fetches even when the cached series is fresh.
+       * @returns The cache entry, whose `attempts` drives the retry backoff.
+       */
+      const loadFocusSeries = React.useCallback(async (symbol, days, options) => {
+        const force = options !== undefined && options.force === true;
+        const key = seriesKey(symbol, days);
+        const cached = focusRef.current[key];
+        if (!force && cached !== undefined && cached.points.length >= 2 && Date.now() - cached.at < CHART_TTL) {
+          return cached;
+        }
+        const running = focusInflight.current[key];
+        if (running !== undefined) return running;
+        const request = (async () => {
+          let entry;
+          try {
+            const points = await fetchTrend(symbol, undefined, days);
+            const attempts = points.length >= 2
+              ? 0
+              : (cached === undefined || cached.attempts === undefined ? 0 : cached.attempts) + 1;
+            entry = points.length >= 2
+              ? { at: Date.now(), points, attempts }
+              : { at: 0, points: [], attempts, error: true };
+          } catch {
+            const attempts = cached === undefined || cached.attempts === undefined ? 1 : cached.attempts + 1;
+            entry = { at: 0, points: [], attempts, error: true };
+          }
+          const next = { ...focusRef.current, [key]: entry };
+          focusRef.current = next;
+          setFocusSeries(next);
+          return entry;
+        })();
+        focusInflight.current[key] = request;
+        try {
+          return await request;
+        } finally {
+          delete focusInflight.current[key];
+        }
+      }, []);
+
+      // The focus chart: one series per (symbol, day count). It is painted from the
+      // sparkline cache when possible, and a request that fails is retried with a
+      // short backoff instead of waiting a whole refresh cycle, so a click never
+      // sits on "loading" while the panel has nothing to show.
       React.useEffect(() => {
         if (focus === null) return undefined;
-        const key = `${focus}|${focusDays}`;
         let cancelled = false;
-        const load = async () => {
-          const cached = focusRef.current[key];
-          if (cached !== undefined && Date.now() - cached.at < CHART_TTL) return;
+        let timer = null;
+        const schedule = (delay) => {
+          if (cancelled) return;
+          timer = window.setTimeout(() => { void tick(); }, delay);
+        };
+        const tick = async () => {
+          if (cancelled) return;
+          if (document.visibilityState === 'hidden') {
+            schedule(CHART_TTL);
+            return;
+          }
           try {
-            const points = await fetchTrend(focus, undefined, focusDays);
+            const entry = await loadFocusSeries(focus, focusDays);
             if (cancelled) return;
-            const next = { ...focusRef.current, [key]: { at: Date.now(), points } };
-            focusRef.current = next;
-            setFocusSeries(next);
+            const failed = entry === undefined || entry.points.length < 2;
+            schedule(failed ? retryDelay(entry === undefined ? 1 : entry.attempts) : CHART_TTL);
           } catch {
-            /* keep whatever is already on screen */
+            if (!cancelled) schedule(retryDelay(1));
           }
         };
-        void load();
-        const id = window.setInterval(() => {
-          if (document.visibilityState === 'hidden') return;
-          void load();
-        }, CHART_TTL);
+        void tick();
         return () => {
           cancelled = true;
-          window.clearInterval(id);
+          if (timer !== null) window.clearTimeout(timer);
         };
-      }, [focus, focusDays]);
+      }, [focus, focusDays, loadFocusSeries]);
 
       // Close the context menu on anything that would leave it stranded.
       React.useEffect(() => {
@@ -1547,12 +1667,36 @@ window.__ModuleLoader__.load({
       };
 
       /**
+       * Open or close the focus chart for one row. Opening paints it from the
+       * sparkline series the panel already has, so the click shows a chart at once
+       * and the network only refreshes it.
+       */
+      const toggleFocus = (symbol) => {
+        if (focus !== symbol) seedFocusSeries(symbol, 1);
+        setFocus((previous) => (previous === symbol ? null : symbol));
+      };
+
+      /**
+       * Start the focus request on pointer-down, a few milliseconds before the
+       * click lands. The click's effect then joins the same request, so the gap
+       * between pressing the row and seeing the line is one render, not one round
+       * trip.
+       */
+      const prefetchFocus = (symbol, event) => {
+        const target = event === null || event === undefined ? null : event.target;
+        if (target !== null && typeof target.closest === 'function' && target.closest('input,button,a') !== null) return;
+        if (focus === symbol) return;
+        seedFocusSeries(symbol, 1);
+        void loadFocusSeries(symbol, 1).catch(() => {});
+      };
+
+      /**
        * The focus chart: a full-width intraday line for the most recently clicked
        * row, with an axis, a previous-close baseline, the day's average and a
        * crosshair that reads out the value under the pointer.
        */
       const buildFocusPanel = () => {
-        const cached = focusSeries[`${focus}|${focusDays}`];
+        const cached = focusSeries[seriesKey(focus, focusDays)];
         const points = cached === undefined ? [] : cached.points;
         const quote = quoteBySymbol.get(focus);
         const kind = sessionKindOf(quote === undefined ? undefined : quote.market);
@@ -1602,7 +1746,15 @@ window.__ModuleLoader__.load({
               onClick: () => { setFocus(null); setHover(null); },
             }, '\u00d7')),
           geometry === null
-            ? h('div', { className: 'dsq-focus-empty' }, t('panel.loading'))
+            ? (cached !== undefined && cached.error === true
+              ? h('div', { className: 'dsq-focus-empty dsq-focus-failed' },
+                h('span', { className: 'dsq-focus-error' }, t('focus.error')),
+                h('button', {
+                  type: 'button',
+                  className: 'dsq-btn',
+                  onClick: () => { void loadFocusSeries(focus, focusDays, { force: true }); },
+                }, t('panel.retry')))
+              : h('div', { className: 'dsq-focus-empty' }, t('panel.loading')))
             : h('svg', {
               viewBox: `0 0 ${FOCUS_BOX.width} ${FOCUS_BOX.height}`,
               role: 'img',
@@ -1855,12 +2007,13 @@ window.__ModuleLoader__.load({
             if (event.key === 'Enter' || event.key === ' ') {
               event.preventDefault();
               setHover(null);
-              setFocus((previous) => (previous === symbol ? null : symbol));
+              toggleFocus(symbol);
             } else if (event.key === 'Escape') {
               setFocus(null);
             }
           },
           onContextMenu: (event) => openMenu(symbol, event),
+          onPointerDown: (event) => prefetchFocus(symbol, event),
           onDragOver: (event) => {
             if (drag === null) return;
             event.preventDefault();
@@ -1879,7 +2032,7 @@ window.__ModuleLoader__.load({
             const target = event === null || event === undefined ? null : event.target;
             if (target !== null && typeof target.closest === 'function' && target.closest('input,button,a') !== null) return;
             setHover(null);
-            setFocus((previous) => (previous === symbol ? null : symbol));
+            toggleFocus(symbol);
           },
         },
         h('div', { className: 'dsq-pick', role: 'cell' },
@@ -2335,6 +2488,7 @@ window.__ModuleLoader__.load({
           'focus.days5': FALLBACK_TEXT['focus.days5'],
           'focus.close': FALLBACK_TEXT['focus.close'],
           'focus.hint': FALLBACK_TEXT['focus.hint'],
+          'focus.error': FALLBACK_TEXT['focus.error'],
           'panel.copied': FALLBACK_TEXT['panel.copied'],
           'panel.copyFailed': FALLBACK_TEXT['panel.copyFailed'],
           'menu.title': FALLBACK_TEXT['menu.title'],
@@ -2415,6 +2569,7 @@ window.__ModuleLoader__.load({
           'focus.days5': '5D',
           'focus.close': 'Close',
           'focus.hint': 'Move over the chart to read values',
+          'focus.error': 'Chart request failed',
           'panel.copied': 'Symbols copied',
           'panel.copyFailed': 'Copy failed',
           'menu.title': 'Watchlist actions',
@@ -2537,6 +2692,7 @@ window.__ModuleLoader__.load({
         normalisePrefs,
         mapLimit,
         fetchTrend,
+        retryDelay,
         focusGeometry,
         nearestIndex,
         xAxisTicks,

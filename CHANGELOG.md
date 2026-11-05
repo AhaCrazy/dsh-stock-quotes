@@ -11,6 +11,18 @@ those series closed. The current release is **2.0.2**, cut on 2026-11-02.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Clicking a watchlist row could sit on "加载中" for a long time.** The focus
+  chart now paints from the intraday series the sparkline column has already
+  fetched, starts its request on pointer-down rather than after the click,
+  bounds every request with an 8s timeout (a stalled connection used to hang the
+  chart forever), retries a failed series with a short backoff (2s, 4s, … 30s)
+  instead of waiting a full 60s refresh cycle, and shows a "chart request failed"
+  state with a retry button instead of an endless spinner. The internal failures
+  are counted per (symbol, day count), so a single flaky endpoint no longer makes
+  the whole panel look stuck.
+
 ### Added
 
 - `.github/workflows/release.yml`: pushing a `v*` tag lints, tests, verifies that
